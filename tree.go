@@ -265,6 +265,67 @@ func truncateStr(s string, maxWidth int) string {
 	return s[:maxWidth-1] + "…"
 }
 
+// truncateBranch shortens "[branchname]" keeping the brackets visible.
+func truncateBranch(branch string, maxWidth int) string {
+	if len(branch) <= maxWidth {
+		return branch
+	}
+	if maxWidth <= 2 {
+		return "" // can't show anything useful
+	}
+	if maxWidth == 3 {
+		return "[…]"
+	}
+	// "[" + truncated + "…]"
+	innerMax := maxWidth - 3 // 1 for "[", 1 for "…", 1 for "]"
+	return "[" + branch[1:1+innerMax] + "…]"
+}
+
+// fitNameAndBranch splits available space between repo name and branch,
+// truncating each proportionally so both remain partially visible.
+func fitNameAndBranch(name, branch string, avail int) (string, string) {
+	nameLen := len(name)
+	branchLen := len(branch)
+
+	// Both fit without truncation
+	if nameLen+branchLen <= avail {
+		return name, branch
+	}
+
+	minName := 3  // e.g. "si…"
+	minBranch := 4 // e.g. "[m…]"
+
+	if avail < minName+minBranch {
+		// Can't fit both, just show name
+		return truncatePath(name, max(1, avail)), ""
+	}
+
+	// Allocate ~60% to name, ~40% to branch
+	nameSpace := avail * 3 / 5
+	branchSpace := avail - nameSpace
+
+	// Ensure minimums
+	if nameSpace < minName {
+		nameSpace = minName
+		branchSpace = avail - nameSpace
+	}
+	if branchSpace < minBranch {
+		branchSpace = minBranch
+		nameSpace = avail - branchSpace
+	}
+
+	// If one doesn't need truncation, give its excess to the other
+	if nameLen <= nameSpace && branchLen > branchSpace {
+		branchSpace = avail - nameLen
+		nameSpace = nameLen
+	} else if branchLen <= branchSpace && nameLen > nameSpace {
+		nameSpace = avail - branchLen
+		branchSpace = branchLen
+	}
+
+	return truncatePath(name, nameSpace), truncateBranch(branch, branchSpace)
+}
+
 // truncatePath shortens a path from the left to fit maxWidth, e.g. "…/Projects/gitbar"
 func truncatePath(path string, maxWidth int) string {
 	if len(path) <= maxWidth {
@@ -314,38 +375,47 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		if node.Collapsed {
 			arrow = "▸"
 		}
-		branchStr := fmt.Sprintf("[%s]", node.Repo.Branch)
+		branchFull := fmt.Sprintf("[%s]", node.Repo.Branch)
 		countStr := fmt.Sprintf("(%d)", len(node.Repo.Files))
+		nameFull := node.Repo.RelPath
 
-		// Available space after "▸ 📁 " (4 chars)
+		// Available space after "▸ 📁 " (arrow + space + icon + space = 4 chars)
 		avail := width - 4
 
-		// Try to fit: name + " " + branch + " " + count
-		nameSpace := avail - len(branchStr) - len(countStr) - 2
-		if nameSpace >= 3 {
-			// All three fit
-			nameStr := truncatePath(node.Repo.RelPath, nameSpace)
+		// Try to fit all three: name + " " + branch + " " + count
+		fullLen := len(nameFull) + 1 + len(branchFull) + 1 + len(countStr)
+		if fullLen <= avail {
 			icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
-			name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameStr)
-			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchStr)
+			name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameFull)
+			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchFull)
 			fileCount := bg.Foreground(lipgloss.Color(theme.FileCount)).Render(countStr)
 			arrowStyled := bg.Render(arrow)
 			return arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
 		}
 
-		// Drop count, try: name + " " + branch
-		nameSpace = avail - len(branchStr) - 1
-		if nameSpace >= 3 {
-			nameStr := truncatePath(node.Repo.RelPath, nameSpace)
+		// Try with count: name + branch share (avail - countLen - 2 spaces)
+		availNB := avail - len(countStr) - 2
+		showCount := true
+		if availNB < 7 { // not enough for meaningful name+branch with count
+			availNB = avail - 1 // drop count, 1 space between name and branch
+			showCount = false
+		}
+
+		nameStr, branchStr := fitNameAndBranch(nameFull, branchFull, availNB)
+		if nameStr != "" && branchStr != "" {
 			icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
 			name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameStr)
 			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchStr)
 			arrowStyled := bg.Render(arrow)
+			if showCount {
+				fileCount := bg.Foreground(lipgloss.Color(theme.FileCount)).Render(countStr)
+				return arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
+			}
 			return arrowStyled + sp + icon + sp + name + sp + branch
 		}
 
-		// Drop branch too, just: name (truncated)
-		nameStr := truncatePath(node.Repo.RelPath, max(1, avail))
+		// Last resort: just name
+		nameStr = truncatePath(nameFull, max(1, avail))
 		icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
 		name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameStr)
 		arrowStyled := bg.Render(arrow)
