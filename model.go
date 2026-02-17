@@ -448,12 +448,12 @@ func (m model) renderMenu() string {
 }
 
 func (m model) renderStatusBar() string {
-	totalFiles := 0
+	totalChanges := 0
 	for _, r := range m.repos {
-		totalFiles += len(r.Files)
+		totalChanges += len(r.Files)
 	}
 
-	left := fmt.Sprintf(" %d repo(s) | %d file(s)", len(m.repos), totalFiles)
+	left := fmt.Sprintf(" %d repo(s) | %d change(s)", len(m.repos), totalChanges)
 	hints := "(q) quit  (↵) diff  (esc) close  (⇥) switch  (c) fold  (o) open  (d) discard  (p) layout  (r) refresh"
 
 	full := left + " | " + strings.Repeat(" ", max(1, m.width-len(left)-len(hints)-3)) + hints
