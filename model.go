@@ -31,6 +31,12 @@ type diffLoadedMsg struct {
 
 type fileChangedMsg struct{}
 
+type menuOption struct {
+	key    string         // shortcut key displayed (e.g. "x", "u"), empty for Cancel
+	label  string         // display text
+	action func() tea.Cmd // nil means cancel/close
+}
+
 // Model
 type model struct {
 	repos        []Repo
@@ -45,6 +51,11 @@ type model struct {
 	focused      panel
 	ready        bool
 	scanRoot     string
+
+	menuOpen    bool
+	menuTitle   string
+	menuOptions []menuOption
+	menuCursor  int
 }
 
 func initialModel(cfg Config, root string) model {
@@ -102,7 +113,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *model) closeMenu() {
+	m.menuOpen = false
+	m.menuTitle = ""
+	m.menuOptions = nil
+	m.menuCursor = 0
+}
+
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Intercept keys when menu is open
+	if m.menuOpen {
+		switch msg.String() {
+		case "up", "k":
+			if m.menuCursor > 0 {
+				m.menuCursor--
+			}
+		case "down", "j":
+			if m.menuCursor < len(m.menuOptions)-1 {
+				m.menuCursor++
+			}
+		case "enter":
+			opt := m.menuOptions[m.menuCursor]
+			m.closeMenu()
+			if opt.action != nil {
+				return m, opt.action()
+			}
+		case "esc":
+			m.closeMenu()
+		default:
+			// Check shortcut keys
+			key := msg.String()
+			for _, opt := range m.menuOptions {
+				if opt.key == key {
+					m.closeMenu()
+					if opt.action != nil {
+						return m, opt.action()
+					}
+					return m, nil
+				}
+			}
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -159,6 +212,29 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case "d":
+		if m.focused == panelTree {
+			node := m.tree.SelectedNode()
+			if node != nil && node.Kind == NodeFile {
+				repoPath := node.Repo.Path
+				filePath := node.File.Path
+				isUntracked := node.File.Status == StatusUntracked
+				discardAll := func() tea.Cmd {
+					return func() tea.Msg {
+						_ = DiscardAllChanges(repoPath, filePath, isUntracked)
+						return fileChangedMsg{}
+					}
+				}
+				m.menuTitle = "Discard changes"
+				m.menuOptions = []menuOption{
+					{key: "x", label: "Discard all changes", action: discardAll},
+					{label: "Cancel"},
+				}
+				m.menuCursor = 0
+				m.menuOpen = true
+			}
+		}
+
 	case "p":
 		if m.config.DiffPosition == "right" {
 			m.config.DiffPosition = "bottom"
@@ -201,7 +277,13 @@ func (m model) View() string {
 
 	statusBarWithMargin := lipgloss.NewStyle().MarginBottom(1).MarginLeft(1).Render(statusBar)
 
-	return lipgloss.JoinVertical(lipgloss.Left, outer, statusBarWithMargin)
+	view := lipgloss.JoinVertical(lipgloss.Left, outer, statusBarWithMargin)
+
+	if m.menuOpen {
+		view = m.renderMenu()
+	}
+
+	return view
 }
 
 func (m model) renderTreePanel(width, height int) string {
@@ -306,6 +388,51 @@ func renderBorderedPanel(title, content string, width, height int, borderColor, 
 	return strings.Join(rows, "\n")
 }
 
+func (m model) renderMenu() string {
+	cursorBg := lipgloss.Color(m.config.Theme.CursorBg)
+	borderColor := m.config.Theme.BorderFocused
+
+	// Full window width minus outer margin (1 left + 1 right)
+	boxWidth := m.width - 2
+	innerWidth := boxWidth - 2 // border chars
+
+	// Build option lines
+	var lines []string
+	for i, opt := range m.menuOptions {
+		selected := i == m.menuCursor
+		bg := lipgloss.NewStyle()
+		if selected {
+			bg = bg.Background(cursorBg)
+		}
+
+		var line string
+		if opt.key != "" {
+			keyStyled := bg.Foreground(lipgloss.Color(m.config.Theme.Title)).Render(opt.key)
+			labelStyled := bg.Foreground(lipgloss.NoColor{}).Render(" " + opt.label)
+			line = keyStyled + labelStyled
+		} else {
+			line = bg.Render("  " + opt.label)
+		}
+
+		// Pad to full inner width with the same background
+		vis := lipgloss.Width(line)
+		if vis < innerWidth {
+			line = line + bg.Render(strings.Repeat(" ", innerWidth-vis))
+		}
+
+		lines = append(lines, line)
+	}
+
+	content := strings.Join(lines, "\n")
+	boxHeight := len(m.menuOptions) + 2
+
+	box := renderBorderedPanel(m.menuTitle, content, boxWidth, boxHeight, borderColor, m.config.Theme.Title)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("0")))
+}
+
 func (m model) renderStatusBar() string {
 	totalFiles := 0
 	for _, r := range m.repos {
@@ -313,7 +440,7 @@ func (m model) renderStatusBar() string {
 	}
 
 	left := fmt.Sprintf(" %d repo(s) | %d file(s)", len(m.repos), totalFiles)
-	hints := "(q) quit  (↵) diff  (esc) close  (⇥) switch  (c) fold  (o) open  (p) layout  (r) refresh"
+	hints := "(q) quit  (↵) diff  (esc) close  (⇥) switch  (c) fold  (o) open  (d) discard  (p) layout  (r) refresh"
 
 	full := left + " | " + strings.Repeat(" ", max(1, m.width-len(left)-len(hints)-3)) + hints
 

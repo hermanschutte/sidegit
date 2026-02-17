@@ -136,6 +136,21 @@ func mapStatusByte(b byte) StatusCode {
 	}
 }
 
+func DiscardAllChanges(repoPath, filePath string, isUntracked bool) error {
+	if isUntracked {
+		return os.Remove(filepath.Join(repoPath, filePath))
+	}
+	// Unstage first (ignore error — file may not be staged)
+	unstage := exec.Command("git", "-C", repoPath, "reset", "HEAD", "--", filePath)
+	_ = unstage.Run()
+	// Discard working tree changes
+	cmd := exec.Command("git", "-C", repoPath, "checkout", "--", filePath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout failed: %s", out)
+	}
+	return nil
+}
+
 func GetDiff(repoPath, filePath string) (string, error) {
 	absFile := filepath.Join(repoPath, filePath)
 
