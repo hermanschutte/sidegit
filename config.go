@@ -52,6 +52,7 @@ func DefaultTheme() Theme {
 type Config struct {
 	DiffPosition string `yaml:"diff_position"`
 	ScanDepth    int    `yaml:"scan_depth"`
+	PollInterval int    `yaml:"poll_interval"`
 	Theme        Theme  `yaml:"theme"`
 }
 
@@ -59,6 +60,7 @@ func DefaultConfig() Config {
 	return Config{
 		DiffPosition: "right",
 		ScanDepth:    1,
+		PollInterval: 10,
 		Theme:        DefaultTheme(),
 	}
 }
@@ -147,6 +149,9 @@ func LoadConfig() Config {
 	}
 	if cfg.ScanDepth < 1 {
 		cfg.ScanDepth = 1
+	}
+	if cfg.PollInterval < 0 {
+		cfg.PollInterval = 0
 	}
 
 	return cfg

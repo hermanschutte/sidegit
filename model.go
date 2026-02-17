@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -30,6 +31,7 @@ type diffLoadedMsg struct {
 }
 
 type fileChangedMsg struct{}
+type pollTickMsg time.Time
 
 type menuOption struct {
 	key    string         // shortcut key displayed (e.g. "x", "u"), empty for Cancel
@@ -56,6 +58,7 @@ type model struct {
 	menuTitle   string
 	menuOptions []menuOption
 	menuCursor  int
+
 }
 
 func initialModel(cfg Config, root string) model {
@@ -66,7 +69,11 @@ func initialModel(cfg Config, root string) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return scanReposCmd(m.scanRoot)
+	cmds := []tea.Cmd{scanReposCmd(m.scanRoot)}
+	if m.config.PollInterval > 0 {
+		cmds = append(cmds, pollTickCmd(m.config.PollInterval))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -98,6 +105,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorFinishedMsg:
 		return m, scanReposCmd(m.scanRoot)
+
+	case pollTickMsg:
+		cmds := []tea.Cmd{scanReposCmd(m.scanRoot)}
+		if m.config.PollInterval > 0 {
+			cmds = append(cmds, pollTickCmd(m.config.PollInterval))
+		}
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -492,6 +506,12 @@ func loadDiffCmd(repoPath, filePath string) tea.Cmd {
 		}
 		return diffLoadedMsg{content: content, file: filePath}
 	}
+}
+
+func pollTickCmd(seconds int) tea.Cmd {
+	return tea.Tick(time.Duration(seconds)*time.Second, func(t time.Time) tea.Msg {
+		return pollTickMsg(t)
+	})
 }
 
 type editorFinishedMsg struct{ err error }
