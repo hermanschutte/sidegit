@@ -379,25 +379,36 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		countStr := fmt.Sprintf("(%d)", len(node.Repo.Files))
 		nameFull := node.Repo.RelPath
 
+		// Build ahead/behind suffix
+		abStr := ""
+		if node.Repo.Ahead > 0 {
+			abStr += fmt.Sprintf(" ↑%d", node.Repo.Ahead)
+		}
+		if node.Repo.Behind > 0 {
+			abStr += fmt.Sprintf(" ↓%d", node.Repo.Behind)
+		}
+
 		// Available space after "▸ 📁 " (arrow + space + icon + space = 4 chars)
 		avail := width - 4
 
-		// Try to fit all three: name + " " + branch + " " + count
-		fullLen := len(nameFull) + 1 + len(branchFull) + 1 + len(countStr)
+		// Try to fit all: name + " " + branch + " " + count + abStr
+		fullLen := len(nameFull) + 1 + len(branchFull) + 1 + len(countStr) + len(abStr)
 		if fullLen <= avail {
 			icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
 			name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameFull)
 			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchFull)
 			fileCount := bg.Foreground(lipgloss.Color(theme.FileCount)).Render(countStr)
 			arrowStyled := bg.Render(arrow)
-			return arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
+			result := arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
+			result += renderAheadBehind(node.Repo.Ahead, node.Repo.Behind, bg, sp, theme)
+			return result
 		}
 
-		// Try with count: name + branch share (avail - countLen - 2 spaces)
-		availNB := avail - len(countStr) - 2
+		// Try with count: name + branch share (avail - countLen - abLen - 2 spaces)
+		availNB := avail - len(countStr) - len(abStr) - 2
 		showCount := true
 		if availNB < 7 { // not enough for meaningful name+branch with count
-			availNB = avail - 1 // drop count, 1 space between name and branch
+			availNB = avail - len(abStr) - 1 // drop count, 1 space between name and branch
 			showCount = false
 		}
 
@@ -407,11 +418,15 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 			name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameStr)
 			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchStr)
 			arrowStyled := bg.Render(arrow)
+			var result string
 			if showCount {
 				fileCount := bg.Foreground(lipgloss.Color(theme.FileCount)).Render(countStr)
-				return arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
+				result = arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
+			} else {
+				result = arrowStyled + sp + icon + sp + name + sp + branch
 			}
-			return arrowStyled + sp + icon + sp + name + sp + branch
+			result += renderAheadBehind(node.Repo.Ahead, node.Repo.Behind, bg, sp, theme)
+			return result
 		}
 
 		// Last resort: just name
@@ -444,6 +459,17 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		return indent + styledStatus + sp + icon + sp + fileStyled
 	}
 	return ""
+}
+
+func renderAheadBehind(ahead, behind int, bg lipgloss.Style, sp string, theme Theme) string {
+	var result string
+	if ahead > 0 {
+		result += sp + bg.Foreground(lipgloss.Color(theme.AheadColor)).Render(fmt.Sprintf("↑%d", ahead))
+	}
+	if behind > 0 {
+		result += sp + bg.Foreground(lipgloss.Color(theme.BehindColor)).Render(fmt.Sprintf("↓%d", behind))
+	}
+	return result
 }
 
 func styleStatus(code StatusCode, staged bool, selected bool, theme Theme, cursorBg lipgloss.Color) string {

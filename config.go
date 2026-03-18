@@ -25,6 +25,8 @@ type Theme struct {
 	StatusModified  string `yaml:"status_modified"`
 	StatusUntracked string `yaml:"status_untracked"`
 	DefaultIcon     string `yaml:"default_icon"`
+	AheadColor      string `yaml:"ahead_color"`
+	BehindColor     string `yaml:"behind_color"`
 }
 
 func DefaultTheme() Theme {
@@ -46,6 +48,8 @@ func DefaultTheme() Theme {
 		StatusModified:  "11",
 		StatusUntracked: "8",
 		DefaultIcon:     "7",
+		AheadColor:      "10",
+		BehindColor:     "9",
 	}
 }
 
@@ -117,6 +121,12 @@ func applyThemeDefaults(t *Theme) {
 	}
 	if t.DefaultIcon == "" {
 		t.DefaultIcon = d.DefaultIcon
+	}
+	if t.AheadColor == "" {
+		t.AheadColor = d.AheadColor
+	}
+	if t.BehindColor == "" {
+		t.BehindColor = d.BehindColor
 	}
 }
 
