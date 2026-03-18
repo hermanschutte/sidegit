@@ -165,6 +165,47 @@ func DiscardAllChanges(repoPath, filePath string, isUntracked bool) error {
 	return nil
 }
 
+func ListBranches(repoPath string) ([]string, string, error) {
+	current := FindBranch(repoPath)
+	cmd := exec.Command("git", "-C", repoPath, "branch", "--format=%(refname:short)")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, current, fmt.Errorf("git branch: %s", out)
+	}
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, current, nil
+}
+
+func CheckoutBranch(repoPath, branch string) error {
+	cmd := exec.Command("git", "-C", repoPath, "checkout", branch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout: %s", out)
+	}
+	return nil
+}
+
+func GitPull(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "pull")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git pull: %s", out)
+	}
+	return nil
+}
+
+func GitPush(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "push")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git push: %s", out)
+	}
+	return nil
+}
+
 func GetDiff(repoPath, filePath string) (string, error) {
 	absFile := filepath.Join(repoPath, filePath)
 

@@ -32,6 +32,7 @@ type diffLoadedMsg struct {
 
 type fileChangedMsg struct{}
 type pollTickMsg time.Time
+type gitErrorMsg struct{ err error }
 
 type menuOption struct {
 	key    string         // shortcut key displayed (e.g. "x", "u"), empty for Cancel
@@ -54,11 +55,14 @@ type model struct {
 	ready        bool
 	scanRoot     string
 
-	menuOpen    bool
-	menuTitle   string
-	menuOptions []menuOption
-	menuCursor  int
+	menuOpen         bool
+	menuTitle        string
+	menuOptions      []menuOption
+	menuCursor       int
+	menuScrollOffset int
 
+	helpOpen  bool
+	statusMsg string
 }
 
 func initialModel(cfg Config, root string) model {
@@ -113,6 +117,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case gitErrorMsg:
+		m.statusMsg = "git: " + msg.err.Error()
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -132,19 +140,43 @@ func (m *model) closeMenu() {
 	m.menuTitle = ""
 	m.menuOptions = nil
 	m.menuCursor = 0
+	m.menuScrollOffset = 0
+}
+
+func (m model) maxMenuVisible() int {
+	v := m.height - 6
+	if v < 3 {
+		v = 3
+	}
+	return v
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.statusMsg = ""
+
+	// Any key closes help overlay
+	if m.helpOpen {
+		m.helpOpen = false
+		return m, nil
+	}
+
 	// Intercept keys when menu is open
 	if m.menuOpen {
 		switch msg.String() {
 		case "up", "k":
 			if m.menuCursor > 0 {
 				m.menuCursor--
+				if m.menuCursor < m.menuScrollOffset {
+					m.menuScrollOffset = m.menuCursor
+				}
 			}
 		case "down", "j":
 			if m.menuCursor < len(m.menuOptions)-1 {
 				m.menuCursor++
+				maxVisible := m.maxMenuVisible()
+				if maxVisible > 0 && m.menuCursor >= m.menuScrollOffset+maxVisible {
+					m.menuScrollOffset = m.menuCursor - maxVisible + 1
+				}
 			}
 		case "enter":
 			opt := m.menuOptions[m.menuCursor]
@@ -260,6 +292,73 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.diffViewport.SetContent(m.diffContent)
 		}
 
+	case "?":
+		m.helpOpen = true
+
+	case "b":
+		if m.focused == panelTree {
+			node := m.tree.SelectedNode()
+			if node != nil && node.Kind == NodeRepo {
+				repoPath := node.Repo.Path
+				branches, current, err := ListBranches(repoPath)
+				if err != nil {
+					m.statusMsg = "git: " + err.Error()
+					return m, nil
+				}
+				var opts []menuOption
+				for _, br := range branches {
+					br := br // capture
+					label := br
+					key := ""
+					if br == current {
+						key = "*"
+						label = br + " (current)"
+					}
+					opts = append(opts, menuOption{
+						key:   key,
+						label: label,
+						action: func() tea.Cmd {
+							return checkoutBranchCmd(repoPath, br)
+						},
+					})
+				}
+				opts = append(opts, menuOption{label: "Cancel"})
+				m.menuTitle = "Branches: " + node.Repo.RelPath
+				m.menuOptions = opts
+				m.menuCursor = 0
+				m.menuScrollOffset = 0
+				m.menuOpen = true
+			}
+		}
+
+	case "s":
+		if m.focused == panelTree {
+			node := m.tree.SelectedNode()
+			if node != nil && node.Kind == NodeRepo {
+				repoPath := node.Repo.Path
+				title := "Sync: " + node.Repo.RelPath
+				if node.Repo.Ahead > 0 {
+					title += fmt.Sprintf(" ↑%d", node.Repo.Ahead)
+				}
+				if node.Repo.Behind > 0 {
+					title += fmt.Sprintf(" ↓%d", node.Repo.Behind)
+				}
+				m.menuTitle = title
+				m.menuOptions = []menuOption{
+					{key: "l", label: "Pull (fetch & merge)", action: func() tea.Cmd {
+						return gitPullCmd(repoPath)
+					}},
+					{key: "p", label: "Push", action: func() tea.Cmd {
+						return gitPushCmd(repoPath)
+					}},
+					{label: "Cancel"},
+				}
+				m.menuCursor = 0
+				m.menuScrollOffset = 0
+				m.menuOpen = true
+			}
+		}
+
 	case "r":
 		return m, scanReposCmd(m.scanRoot)
 	}
@@ -295,6 +394,10 @@ func (m model) View() string {
 
 	if m.menuOpen {
 		view = m.renderMenu()
+	}
+
+	if m.helpOpen {
+		view = m.renderHelp()
 	}
 
 	return view
@@ -410,9 +513,32 @@ func (m model) renderMenu() string {
 	boxWidth := m.width - 2
 	innerWidth := boxWidth - 2 // border chars
 
+	// Determine visible range
+	maxVisible := m.maxMenuVisible()
+	total := len(m.menuOptions)
+	endIdx := total
+	startIdx := m.menuScrollOffset
+	if maxVisible > 0 && total > maxVisible {
+		endIdx = startIdx + maxVisible
+		if endIdx > total {
+			endIdx = total
+		}
+	}
+
 	// Build option lines
 	var lines []string
-	for i, opt := range m.menuOptions {
+
+	if startIdx > 0 {
+		indicator := lipgloss.NewStyle().Foreground(lipgloss.Color(m.config.Theme.Title)).Render("  ▴ more")
+		vis := lipgloss.Width(indicator)
+		if vis < innerWidth {
+			indicator += strings.Repeat(" ", innerWidth-vis)
+		}
+		lines = append(lines, indicator)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		opt := m.menuOptions[i]
 		selected := i == m.menuCursor
 		bg := lipgloss.NewStyle()
 		if selected {
@@ -437,10 +563,65 @@ func (m model) renderMenu() string {
 		lines = append(lines, line)
 	}
 
+	if endIdx < total {
+		indicator := lipgloss.NewStyle().Foreground(lipgloss.Color(m.config.Theme.Title)).Render("  ▾ more")
+		vis := lipgloss.Width(indicator)
+		if vis < innerWidth {
+			indicator += strings.Repeat(" ", innerWidth-vis)
+		}
+		lines = append(lines, indicator)
+	}
+
 	content := strings.Join(lines, "\n")
-	boxHeight := len(m.menuOptions) + 2
+	boxHeight := len(lines) + 2
 
 	box := renderBorderedPanel(m.menuTitle, content, boxWidth, boxHeight, borderColor, m.config.Theme.Title)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("0")))
+}
+
+func (m model) renderHelp() string {
+	borderColor := m.config.Theme.BorderFocused
+	keyColor := lipgloss.Color(m.config.Theme.Title)
+
+	shortcuts := [][2]string{
+		{"?", "Show this help"},
+		{"↵", "View diff"},
+		{"esc", "Close diff"},
+		{"⇥", "Switch panel"},
+		{"↑/k", "Move up"},
+		{"↓/j", "Move down"},
+		{"c/e", "Collapse/expand"},
+		{"o", "Open in editor"},
+		{"d", "Discard changes"},
+		{"b", "Switch branch"},
+		{"s", "Sync (pull/push)"},
+		{"p", "Toggle layout"},
+		{"r", "Refresh"},
+		{"q", "Quit"},
+	}
+
+	boxWidth := m.width - 2
+	innerWidth := boxWidth - 2
+
+	var lines []string
+	for _, sc := range shortcuts {
+		key := lipgloss.NewStyle().Foreground(keyColor).Width(6).Render(sc[0])
+		desc := lipgloss.NewStyle().Render(sc[1])
+		line := key + desc
+		vis := lipgloss.Width(line)
+		if vis < innerWidth {
+			line += strings.Repeat(" ", innerWidth-vis)
+		}
+		lines = append(lines, line)
+	}
+
+	content := strings.Join(lines, "\n")
+	boxHeight := len(shortcuts) + 2
+
+	box := renderBorderedPanel("Help", content, boxWidth, boxHeight, borderColor, m.config.Theme.Title)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box,
 		lipgloss.WithWhitespaceChars(" "),
@@ -454,21 +635,14 @@ func (m model) renderStatusBar() string {
 	}
 
 	left := fmt.Sprintf(" %d repo(s) | %d change(s)", len(m.repos), totalChanges)
-	hints := "(q) quit  (↵) diff  (esc) close  (⇥) switch  (c) fold  (o) open  (d) discard  (p) layout  (r) refresh"
-
-	full := left + " | " + strings.Repeat(" ", max(1, m.width-len(left)-len(hints)-3)) + hints
-
-	// Truncate to fit in one line
-	if len(full) > m.width {
-		if m.width > 3 {
-			full = full[:m.width-3] + "..."
-		} else {
-			full = full[:m.width]
-		}
+	hints := " | (?) help"
+	if m.statusMsg != "" {
+		hints = " | " + m.statusMsg
 	}
 
+	full := left + hints
+
 	return lipgloss.NewStyle().
-		Width(m.width).
 		MaxHeight(1).
 		Foreground(lipgloss.Color(m.config.Theme.StatusBar)).
 		Render(full)
@@ -515,6 +689,33 @@ func pollTickCmd(seconds int) tea.Cmd {
 }
 
 type editorFinishedMsg struct{ err error }
+
+func checkoutBranchCmd(repoPath, branch string) tea.Cmd {
+	return func() tea.Msg {
+		if err := CheckoutBranch(repoPath, branch); err != nil {
+			return gitErrorMsg{err: err}
+		}
+		return fileChangedMsg{}
+	}
+}
+
+func gitPullCmd(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		if err := GitPull(repoPath); err != nil {
+			return gitErrorMsg{err: err}
+		}
+		return fileChangedMsg{}
+	}
+}
+
+func gitPushCmd(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		if err := GitPush(repoPath); err != nil {
+			return gitErrorMsg{err: err}
+		}
+		return fileChangedMsg{}
+	}
+}
 
 func openInEditorCmd(repoPath, filePath string) tea.Cmd {
 	editor := os.Getenv("EDITOR")
