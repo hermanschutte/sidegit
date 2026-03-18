@@ -18,14 +18,15 @@ const (
 )
 
 type TreeNode struct {
-	Kind      NodeKind
-	Repo      *Repo
-	File      *FileStatus
-	DirPath   string // for NodeDir: the directory path
-	RepoIndex int
-	Depth     int  // indentation depth (0=repo, 1=dir/root file, 2=file under dir)
-	Collapsed bool
-	ParentDir int // index of parent dir node (-1 if none)
+	Kind        NodeKind
+	Repo        *Repo
+	File        *FileStatus
+	DirPath     string // for NodeDir: the directory path
+	RepoIndex   int
+	Depth       int  // indentation depth (0=repo, 1=dir/root file, 2=file under dir)
+	Collapsed   bool
+	ParentDir   int  // index of parent dir node (-1 if none)
+	IsLastChild bool // true if this is the last child of its parent
 }
 
 type TreeModel struct {
@@ -133,6 +134,18 @@ func NewTreeModel(repos []Repo, theme Theme) TreeModel {
 		}
 	}
 
+	// Mark last children: group by parent, last child in each group gets IsLastChild
+	lastChildByParent := map[int]int{} // parentIdx -> last child node index
+	for i, n := range nodes {
+		if n.Kind == NodeRepo {
+			continue
+		}
+		lastChildByParent[n.ParentDir] = i
+	}
+	for _, idx := range lastChildByParent {
+		nodes[idx].IsLastChild = true
+	}
+
 	tm := TreeModel{nodes: nodes, theme: theme}
 	tm.rebuildVisible()
 	return tm
@@ -223,10 +236,12 @@ func (tm *TreeModel) Render(width, height int) string {
 
 	var lines []string
 	cursorBg := lipgloss.Color(tm.theme.CursorBg)
+	treeLine := lipgloss.Color(tm.theme.TreeLines)
 	for i := startIdx; i < len(tm.visible) && len(lines) < height; i++ {
 		node := tm.nodes[tm.visible[i]]
 		selected := i == tm.cursor
-		line := renderNode(node, selected, width, tm.theme, cursorBg)
+		prefix := tm.buildTreePrefix(node, selected, cursorBg, treeLine)
+		line := renderNode(node, selected, width, tm.theme, cursorBg, prefix)
 		line = padRight(line, width, selected, cursorBg)
 		lines = append(lines, line)
 	}
@@ -236,6 +251,48 @@ func (tm *TreeModel) Render(width, height int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (tm *TreeModel) buildTreePrefix(node TreeNode, selected bool, cursorBg, treeLine lipgloss.Color) string {
+	if node.Kind == NodeRepo || node.Depth == 0 {
+		return ""
+	}
+
+	bg := lipgloss.NewStyle()
+	if selected {
+		bg = bg.Background(cursorBg)
+	}
+	lineStyle := bg.Foreground(treeLine)
+
+	// Build ancestor chain from depth 1 to node.Depth
+	// For each depth level, we need to know if the ancestor at that level is the last child
+	ancestors := make([]TreeNode, node.Depth+1)
+	ancestors[node.Depth] = node
+	cur := node
+	for d := node.Depth; d > 0; d-- {
+		if cur.ParentDir >= 0 {
+			cur = tm.nodes[cur.ParentDir]
+		}
+		ancestors[d-1] = cur
+	}
+
+	var prefix string
+	for d := 1; d < node.Depth; d++ {
+		if ancestors[d].IsLastChild {
+			prefix += bg.Render("  ")
+		} else {
+			prefix += lineStyle.Render("│") + bg.Render(" ")
+		}
+	}
+
+	// Final connector at the node's own depth
+	if node.IsLastChild {
+		prefix += lineStyle.Render("└") + bg.Render(" ")
+	} else {
+		prefix += lineStyle.Render("├") + bg.Render(" ")
+	}
+
+	return prefix
 }
 
 func padRight(s string, width int, selected bool, cursorBg lipgloss.Color) string {
@@ -358,7 +415,7 @@ func truncatePath(path string, maxWidth int) string {
 	return "…" + string(filepath.Separator) + result
 }
 
-func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg lipgloss.Color) string {
+func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg lipgloss.Color, prefix string) string {
 	var bg lipgloss.Style
 	if selected {
 		bg = lipgloss.NewStyle().Background(cursorBg)
@@ -366,7 +423,6 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		bg = lipgloss.NewStyle()
 	}
 
-	indent := bg.Render(strings.Repeat("  ", node.Depth))
 	sp := bg.Render(" ")
 
 	switch node.Kind {
@@ -441,22 +497,22 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		if node.Collapsed {
 			arrow = "▸"
 		}
-		// indent + arrow + sp + icon + sp + name
+		// prefix + arrow + sp + icon + sp + name
 		fixedWidth := node.Depth*2 + 1 + 1 + 1 + 1
 		dirName := truncateStr(node.DirPath, width-fixedWidth)
 		icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
 		name := bg.Bold(true).Foreground(lipgloss.Color(theme.DirName)).Render(dirName)
 		arrowStyled := bg.Render(arrow)
-		return indent + arrowStyled + sp + icon + sp + name
+		return prefix + arrowStyled + sp + icon + sp + name
 
 	case NodeFile:
-		// indent + status + sp + icon + sp + name
+		// prefix + status + sp + icon + sp + name
 		fixedWidth := node.Depth*2 + 1 + 1 + 1 + 1
 		fileName := truncateStr(filepath.Base(node.File.Path), width-fixedWidth)
 		styledStatus := styleStatus(node.File.Status, node.File.IsStaged, selected, theme, cursorBg)
 		icon := fileIconStyled(node.File.Path, selected, theme, cursorBg)
 		fileStyled := bg.Render(fileName)
-		return indent + styledStatus + sp + icon + sp + fileStyled
+		return prefix + styledStatus + sp + icon + sp + fileStyled
 	}
 	return ""
 }

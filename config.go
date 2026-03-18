@@ -27,6 +27,7 @@ type Theme struct {
 	DefaultIcon     string `yaml:"default_icon"`
 	AheadColor      string `yaml:"ahead_color"`
 	BehindColor     string `yaml:"behind_color"`
+	TreeLines       string `yaml:"tree_lines"`
 }
 
 func DefaultTheme() Theme {
@@ -50,6 +51,7 @@ func DefaultTheme() Theme {
 		DefaultIcon:     "7",
 		AheadColor:      "10",
 		BehindColor:     "9",
+		TreeLines:       "8",
 	}
 }
 
@@ -127,6 +129,9 @@ func applyThemeDefaults(t *Theme) {
 	}
 	if t.BehindColor == "" {
 		t.BehindColor = d.BehindColor
+	}
+	if t.TreeLines == "" {
+		t.TreeLines = d.TreeLines
 	}
 }
 
