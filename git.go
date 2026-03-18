@@ -44,35 +44,49 @@ func FindBranch(repoPath string) string {
 	return ref
 }
 
-func GetStatus(repoPath string) ([]FileStatus, error) {
+type GitStatus struct {
+	Files  []FileStatus
+	Ahead  int
+	Behind int
+}
+
+func GetStatus(repoPath string) (GitStatus, error) {
 	cmd := exec.Command("git", "-C", repoPath, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git status failed: %w", err)
+		return GitStatus{}, fmt.Errorf("git status failed: %w", err)
 	}
 
-	var files []FileStatus
+	var result GitStatus
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "# branch.ab ") {
+			fmt.Sscanf(line, "# branch.ab +%d -%d", &result.Ahead, &result.Behind)
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
 			continue
 		}
 
 		if strings.HasPrefix(line, "1 ") || strings.HasPrefix(line, "2 ") {
 			fs := parseOrdinaryEntry(line)
 			if fs != nil {
-				files = append(files, *fs)
+				result.Files = append(result.Files, *fs)
 			}
 		} else if strings.HasPrefix(line, "? ") {
 			path := line[2:]
-			files = append(files, FileStatus{
+			result.Files = append(result.Files, FileStatus{
 				Path:   path,
 				Status: StatusUntracked,
 			})
 		}
 	}
 
-	return files, nil
+	return result, nil
 }
 
 func parseOrdinaryEntry(line string) *FileStatus {

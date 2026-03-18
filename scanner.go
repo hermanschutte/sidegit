@@ -11,6 +11,8 @@ type Repo struct {
 	RelPath string
 	Branch  string
 	Files   []FileStatus
+	Ahead   int
+	Behind  int
 }
 
 func ScanRepos(root string) ([]Repo, error) {
@@ -89,12 +91,14 @@ func buildRepo(root, repoPath string) Repo {
 	}
 
 	branch := FindBranch(repoPath)
-	files, _ := GetStatus(repoPath)
+	status, _ := GetStatus(repoPath)
 
 	return Repo{
 		Path:    repoPath,
 		RelPath: rel,
 		Branch:  branch,
-		Files:   files,
+		Files:   status.Files,
+		Ahead:   status.Ahead,
+		Behind:  status.Behind,
 	}
 }
