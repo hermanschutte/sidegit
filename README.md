@@ -39,7 +39,7 @@ It scans the current directory and up to two levels deep for git repos with unco
 | `Esc` | Close diff panel |
 | `c` / `e` | Collapse/expand repo or directory |
 | `o` | Open file in `$EDITOR` |
-| `d` | Discard changes (opens confirmation menu) |
+| `d` | Discard changes, or remove a worktree (opens confirmation menu) |
 | `p` | Toggle diff panel position (right/bottom) |
 | `r` | Refresh |
 | `q` | Quit |

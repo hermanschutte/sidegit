@@ -205,6 +205,21 @@ func ListWorktrees(repoPath string) ([]Worktree, error) {
 	return worktrees, nil
 }
 
+// RemoveWorktree deletes a linked worktree folder. The branch stays.
+// force also removes a worktree that has uncommitted changes.
+func RemoveWorktree(mainRepoPath, worktreePath string, force bool) error {
+	args := []string{"-C", mainRepoPath, "worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, worktreePath)
+	cmd := exec.Command("git", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree remove: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func CheckoutBranch(repoPath, branch string) error {
 	cmd := exec.Command("git", "-C", repoPath, "checkout", branch)
 	if out, err := cmd.CombinedOutput(); err != nil {

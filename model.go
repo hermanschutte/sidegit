@@ -278,6 +278,30 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.menuCursor = 0
 				m.menuOpen = true
+			} else if node != nil && node.Kind == NodeRepo && node.Repo.Worktree {
+				mainRepoPath := m.tree.nodes[node.ParentDir].Repo.Path
+				worktreePath := node.Repo.Path
+				changes := len(node.Repo.Files)
+				label := "Remove worktree"
+				if changes > 0 {
+					label = fmt.Sprintf("Remove and discard %d change(s)", changes)
+				}
+				remove := func() tea.Cmd {
+					return func() tea.Msg {
+						if err := RemoveWorktree(mainRepoPath, worktreePath, changes > 0); err != nil {
+							return gitErrorMsg{err: err}
+						}
+						return fileChangedMsg{}
+					}
+				}
+				m.menuTitle = "Remove worktree: " + node.Repo.RelPath
+				m.menuOptions = []menuOption{
+					{key: "x", label: label, action: remove},
+					{label: "Cancel"},
+				}
+				m.menuCursor = 0
+				m.menuScrollOffset = 0
+				m.menuOpen = true
 			}
 		}
 
@@ -607,7 +631,7 @@ func (m model) renderHelp() string {
 		{"↓/j", "Move down"},
 		{"c/e", "Collapse/expand"},
 		{"o", "Open in editor"},
-		{"d", "Discard changes"},
+		{"d", "Discard changes / remove worktree"},
 		{"b", "Switch branch"},
 		{"s", "Sync (pull/push)"},
 		{"p", "Toggle layout"},
