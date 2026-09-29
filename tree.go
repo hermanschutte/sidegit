@@ -38,14 +38,22 @@ type TreeModel struct {
 
 func NewTreeModel(repos []Repo, theme Theme) TreeModel {
 	var nodes []TreeNode
+	mainRepoIdx := -1
 	for i := range repos {
 		repoIdx := len(nodes)
+		// A linked worktree is a child of its main repo, one level deeper
+		base, parent := 0, -1
+		if repos[i].Worktree {
+			base, parent = 1, mainRepoIdx
+		} else {
+			mainRepoIdx = repoIdx
+		}
 		nodes = append(nodes, TreeNode{
 			Kind:      NodeRepo,
 			Repo:      &repos[i],
 			RepoIndex: i,
-			Depth:     0,
-			ParentDir: -1,
+			Depth:     base,
+			ParentDir: parent,
 		})
 
 		// Group files by directory
@@ -84,7 +92,7 @@ func NewTreeModel(repos []Repo, theme Theme) TreeModel {
 				return
 			}
 			parts := strings.Split(dir, "/")
-			depth := len(parts) // 1 for top-level, 2 for nested, etc.
+			depth := base + len(parts) // 1 for top-level, 2 for nested, etc.
 			parentIdx := repoIdx
 			if len(parts) > 1 {
 				parentDir := strings.Join(parts[:len(parts)-1], "/")
@@ -127,7 +135,7 @@ func NewTreeModel(repos []Repo, theme Theme) TreeModel {
 					File:      f,
 					Repo:      &repos[i],
 					RepoIndex: i,
-					Depth:     1,
+					Depth:     base + 1,
 					ParentDir: repoIdx,
 				})
 			}
@@ -137,7 +145,7 @@ func NewTreeModel(repos []Repo, theme Theme) TreeModel {
 	// Mark last children: group by parent, last child in each group gets IsLastChild
 	lastChildByParent := map[int]int{} // parentIdx -> last child node index
 	for i, n := range nodes {
-		if n.Kind == NodeRepo {
+		if n.ParentDir < 0 {
 			continue
 		}
 		lastChildByParent[n.ParentDir] = i
@@ -156,7 +164,9 @@ func (tm *TreeModel) rebuildVisible() {
 	for i, n := range tm.nodes {
 		switch n.Kind {
 		case NodeRepo:
-			tm.visible = append(tm.visible, i)
+			if tm.isAncestorExpanded(n) {
+				tm.visible = append(tm.visible, i)
+			}
 		case NodeDir:
 			// Visible if all ancestors are expanded
 			if tm.isAncestorExpanded(n) {
@@ -254,7 +264,7 @@ func (tm *TreeModel) Render(width, height int) string {
 }
 
 func (tm *TreeModel) buildTreePrefix(node TreeNode, selected bool, cursorBg, treeLine lipgloss.Color) string {
-	if node.Kind == NodeRepo || node.Depth == 0 {
+	if node.Depth == 0 {
 		return ""
 	}
 
@@ -444,17 +454,23 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 			abStr += fmt.Sprintf(" ↓%d", node.Repo.Behind)
 		}
 
-		// Available space after "▸ 📁 " (arrow + space + icon + space = 4 chars)
-		avail := width - 4
+		// Available space after prefix + "▸ 📁 " (arrow + space + icon + space = 4 chars)
+		avail := width - node.Depth*2 - 4
+
+		icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
+		nameStyle := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName))
+		if node.Repo.Worktree {
+			icon = bg.Foreground(lipgloss.Color(theme.Worktree)).Render("\ue725")
+			nameStyle = bg.Foreground(lipgloss.Color(theme.Worktree))
+		}
+		arrowStyled := prefix + bg.Render(arrow)
 
 		// Try to fit all: name + " " + branch + " " + count + abStr
 		fullLen := len(nameFull) + 1 + len(branchFull) + 1 + len(countStr) + len(abStr)
 		if fullLen <= avail {
-			icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
-			name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameFull)
+			name := nameStyle.Render(nameFull)
 			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchFull)
 			fileCount := bg.Foreground(lipgloss.Color(theme.FileCount)).Render(countStr)
-			arrowStyled := bg.Render(arrow)
 			result := arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
 			result += renderAheadBehind(node.Repo.Ahead, node.Repo.Behind, bg, sp, theme)
 			return result
@@ -470,10 +486,8 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 
 		nameStr, branchStr := fitNameAndBranch(nameFull, branchFull, availNB)
 		if nameStr != "" && branchStr != "" {
-			icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
-			name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameStr)
+			name := nameStyle.Render(nameStr)
 			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchStr)
-			arrowStyled := bg.Render(arrow)
 			var result string
 			if showCount {
 				fileCount := bg.Foreground(lipgloss.Color(theme.FileCount)).Render(countStr)
@@ -487,9 +501,7 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 
 		// Last resort: just name
 		nameStr = truncatePath(nameFull, max(1, avail))
-		icon := bg.Foreground(lipgloss.Color(theme.FolderIcon)).Render("\uf07b")
-		name := bg.Bold(true).Foreground(lipgloss.Color(theme.RepoName)).Render(nameStr)
-		arrowStyled := bg.Render(arrow)
+		name := nameStyle.Render(nameStr)
 		return arrowStyled + sp + icon + sp + name
 
 	case NodeDir:

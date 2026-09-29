@@ -68,6 +68,7 @@ theme:
   status_modified: "11"
   status_untracked: "8"
   default_icon: "7"
+  worktree: "6"
 ```
 
 Theme values accept ANSI color codes (`0`-`255`) or hex colors (`"#FF79C6"`).
@@ -75,6 +76,7 @@ Theme values accept ANSI color codes (`0`-`255`) or hex colors (`"#FF79C6"`).
 ## Features
 
 - Scans for git repos automatically (current directory + two levels deep)
+- Shows linked git worktrees as child rows under their main repo
 - File watcher auto-refreshes when files change on disk
 - Colored inline diffs with staged/unstaged detection
 - Nerd Font file icons

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 type Repo struct {
@@ -13,6 +14,8 @@ type Repo struct {
 	Files   []FileStatus
 	Ahead   int
 	Behind  int
+	// Worktree is true for a linked worktree. It follows its main repo in the list.
+	Worktree bool
 }
 
 func ScanRepos(root string) ([]Repo, error) {
@@ -69,7 +72,45 @@ func ScanRepos(root string) ([]Repo, error) {
 		return repos[i].RelPath < repos[j].RelPath
 	})
 
-	return repos, nil
+	// Put each repo's linked worktrees directly after it
+	var withWorktrees []Repo
+	for _, repo := range repos {
+		worktrees, err := ListWorktrees(repo.Path)
+		if err != nil || len(worktrees) < 2 {
+			withWorktrees = append(withWorktrees, repo)
+			continue
+		}
+		// A worktree inside the repo shows as an untracked folder. Its own row shows it.
+		var files []FileStatus
+		for _, f := range repo.Files {
+			abs := filepath.Join(repo.Path, strings.TrimSuffix(f.Path, "/"))
+			if !isWorktreePath(abs, worktrees[1:]) {
+				files = append(files, f)
+			}
+		}
+		repo.Files = files
+		withWorktrees = append(withWorktrees, repo)
+		for _, wt := range worktrees[1:] {
+			if _, err := os.Stat(wt.Path); err != nil {
+				continue // worktree folder was removed
+			}
+			w := buildRepo(root, wt.Path)
+			w.RelPath = filepath.Base(wt.Path)
+			w.Worktree = true
+			withWorktrees = append(withWorktrees, w)
+		}
+	}
+
+	return withWorktrees, nil
+}
+
+func isWorktreePath(path string, worktrees []Worktree) bool {
+	for _, wt := range worktrees {
+		if path == wt.Path || strings.HasPrefix(path, wt.Path+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func isGitRepo(path string) bool {

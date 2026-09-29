@@ -305,6 +305,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.statusMsg = "git: " + err.Error()
 					return m, nil
 				}
+				// Branches checked out in another worktree cannot be checked out here
+				inWorktree := map[string]string{}
+				worktrees, _ := ListWorktrees(repoPath)
+				for _, wt := range worktrees {
+					if wt.Branch != "" && wt.Branch != current {
+						inWorktree[wt.Branch] = filepath.Base(wt.Path)
+					}
+				}
 				var opts []menuOption
 				for _, br := range branches {
 					br := br // capture
@@ -313,6 +321,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if br == current {
 						key = "*"
 						label = br + " (current)"
+					}
+					if wt, ok := inWorktree[br]; ok {
+						opts = append(opts, menuOption{label: br + " (in worktree: " + wt + ")"})
+						continue
 					}
 					opts = append(opts, menuOption{
 						key:   key,
@@ -630,11 +642,15 @@ func (m model) renderHelp() string {
 
 func (m model) renderStatusBar() string {
 	totalChanges := 0
+	repoCount := 0
 	for _, r := range m.repos {
 		totalChanges += len(r.Files)
+		if !r.Worktree {
+			repoCount++
+		}
 	}
 
-	left := fmt.Sprintf(" %d repo(s) | %d change(s)", len(m.repos), totalChanges)
+	left := fmt.Sprintf(" %d repo(s) | %d change(s)", repoCount, totalChanges)
 	hints := " | (?) help"
 	if m.statusMsg != "" {
 		hints = " | " + m.statusMsg

@@ -182,6 +182,29 @@ func ListBranches(repoPath string) ([]string, string, error) {
 	return branches, current, nil
 }
 
+type Worktree struct {
+	Path   string
+	Branch string // short branch name, empty when detached
+}
+
+// ListWorktrees returns all worktrees of the repo. The first entry is the main worktree.
+func ListWorktrees(repoPath string) ([]Worktree, error) {
+	cmd := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list: %s", out)
+	}
+	var worktrees []Worktree
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "worktree ") {
+			worktrees = append(worktrees, Worktree{Path: strings.TrimPrefix(line, "worktree ")})
+		} else if strings.HasPrefix(line, "branch ") && len(worktrees) > 0 {
+			worktrees[len(worktrees)-1].Branch = strings.TrimPrefix(line, "branch refs/heads/")
+		}
+	}
+	return worktrees, nil
+}
+
 func CheckoutBranch(repoPath, branch string) error {
 	cmd := exec.Command("git", "-C", repoPath, "checkout", branch)
 	if out, err := cmd.CombinedOutput(); err != nil {
