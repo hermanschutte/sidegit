@@ -84,6 +84,10 @@ func ScanRepos(root string) ([]Repo, error) {
 		var files []FileStatus
 		for _, f := range repo.Files {
 			abs := filepath.Join(repo.Path, strings.TrimSuffix(f.Path, "/"))
+			// git reports worktree paths with symlinks resolved
+			if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+				abs = resolved
+			}
 			if !isWorktreePath(abs, worktrees[1:]) {
 				files = append(files, f)
 			}
