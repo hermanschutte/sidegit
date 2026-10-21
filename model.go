@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -33,6 +34,13 @@ type diffLoadedMsg struct {
 type fileChangedMsg struct{}
 type pollTickMsg time.Time
 type gitErrorMsg struct{ err error }
+
+// PRs come from the GitHub API, so they refresh less often than the git poll.
+const prInterval = 2 * time.Minute
+
+type prKey struct{ path, branch string }
+type prsFetchedMsg map[prKey]*PRStatus
+type prTickMsg time.Time
 
 type menuOption struct {
 	key    string         // shortcut key displayed (e.g. "x", "u"), empty for Cancel
@@ -63,6 +71,9 @@ type model struct {
 
 	helpOpen  bool
 	statusMsg string
+
+	prs          prsFetchedMsg
+	prsRequested bool
 }
 
 func initialModel(cfg Config, root string) model {
@@ -93,8 +104,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case reposScannedMsg:
 		m.repos = msg.repos
+		m.attachPRs()
 		m.tree = NewTreeModel(m.repos, m.config.Theme)
+		if !m.prsRequested {
+			m.prsRequested = true
+			return m, tea.Batch(fetchPRsCmd(m.repos), prTickCmd())
+		}
 		return m, nil
+
+	case prsFetchedMsg:
+		m.prs = msg
+		m.attachPRs()
+		return m, nil
+
+	case prTickMsg:
+		return m, tea.Batch(fetchPRsCmd(m.repos), prTickCmd())
 
 	case diffLoadedMsg:
 		m.diffContent = msg.content
@@ -396,7 +420,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "r":
-		return m, scanReposCmd(m.scanRoot)
+		return m, tea.Batch(scanReposCmd(m.scanRoot), fetchPRsCmd(m.repos))
 	}
 
 	return m, nil
@@ -720,6 +744,46 @@ func loadDiffCmd(repoPath, filePath string) tea.Cmd {
 		}
 		return diffLoadedMsg{content: content, file: filePath}
 	}
+}
+
+// attachPRs sets each repo's PR from the last fetch. A PR fetched for another
+// branch does not count, so a branch switch shows no PR until the next fetch.
+func (m *model) attachPRs() {
+	for i := range m.repos {
+		m.repos[i].PR = m.prs[prKey{m.repos[i].Path, m.repos[i].Branch}]
+	}
+}
+
+func fetchPRsCmd(repos []Repo) tea.Cmd {
+	var keys []prKey
+	for _, r := range repos {
+		if r.Branch != "HEAD" && r.Branch != "unknown" {
+			keys = append(keys, prKey{r.Path, r.Branch})
+		}
+	}
+	return func() tea.Msg {
+		prs := make(prsFetchedMsg, len(keys))
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		for _, k := range keys {
+			wg.Add(1)
+			go func(k prKey) {
+				defer wg.Done()
+				pr := FetchPR(k.path, k.branch)
+				mu.Lock()
+				prs[k] = pr
+				mu.Unlock()
+			}(k)
+		}
+		wg.Wait()
+		return prs
+	}
+}
+
+func prTickCmd() tea.Cmd {
+	return tea.Tick(prInterval, func(t time.Time) tea.Msg {
+		return prTickMsg(t)
+	})
 }
 
 func pollTickCmd(seconds int) tea.Cmd {

@@ -16,6 +16,8 @@ type Repo struct {
 	Behind  int
 	// Worktree is true for a linked worktree. It follows its main repo in the list.
 	Worktree bool
+	// PR is the GitHub pull request of Branch, nil when there is none or it is not fetched yet.
+	PR *PRStatus
 }
 
 func ScanRepos(root string) ([]Repo, error) {

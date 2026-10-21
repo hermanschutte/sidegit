@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,6 +24,8 @@ type FileStatus struct {
 	Path     string
 	Status   StatusCode
 	IsStaged bool
+	Added    int // lines added compared to HEAD (all lines for an untracked file)
+	Deleted  int // lines deleted compared to HEAD
 }
 
 func FindBranch(repoPath string) string {
@@ -86,7 +89,61 @@ func GetStatus(repoPath string) (GitStatus, error) {
 		}
 	}
 
+	counts := lineCounts(repoPath)
+	for i := range result.Files {
+		f := &result.Files[i]
+		if f.Status == StatusUntracked {
+			f.Added = countLines(filepath.Join(repoPath, f.Path))
+			continue
+		}
+		if c, ok := counts[f.Path]; ok {
+			f.Added, f.Deleted = c[0], c[1]
+		}
+	}
+
 	return result, nil
+}
+
+// lineCounts returns added and deleted lines per tracked file, staged and unstaged
+// together. Binary files and repos without commits get no entry.
+func lineCounts(repoPath string) map[string][2]int {
+	counts := map[string][2]int{}
+	cmd := exec.Command("git", "-C", repoPath, "diff", "HEAD", "--numstat", "--no-renames", "-z")
+	out, err := cmd.Output()
+	if err != nil {
+		return counts
+	}
+	// Each record is "added\tdeleted\tpath\0"; binary files have "-" for both numbers.
+	for _, rec := range strings.Split(string(out), "\x00") {
+		parts := strings.SplitN(rec, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		var added, deleted int
+		if _, err := fmt.Sscanf(parts[0]+" "+parts[1], "%d %d", &added, &deleted); err != nil {
+			continue
+		}
+		counts[parts[2]] = [2]int{added, deleted}
+	}
+	return counts
+}
+
+// countLines counts the lines of an untracked text file. Folders, binary files
+// and files over 1 MB count as 0.
+func countLines(path string) int {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() > 1<<20 {
+		return 0
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || bytes.IndexByte(data, 0) >= 0 {
+		return 0
+	}
+	n := bytes.Count(data, []byte("\n"))
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
 }
 
 func parseOrdinaryEntry(line string) *FileStatus {

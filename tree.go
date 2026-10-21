@@ -454,6 +454,9 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 			abStr += fmt.Sprintf(" ↓%d", node.Repo.Behind)
 		}
 
+		prStyled := renderPR(node.Repo.PR, bg, sp, theme)
+		prWidth := lipgloss.Width(prStyled)
+
 		// Available space after prefix + "▸ 📁 " (arrow + space + icon + space = 4 chars)
 		avail := width - node.Depth*2 - 4
 
@@ -466,21 +469,22 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		arrowStyled := prefix + bg.Render(arrow)
 
 		// Try to fit all: name + " " + branch + " " + count + abStr
-		fullLen := len(nameFull) + 1 + len(branchFull) + 1 + len(countStr) + len(abStr)
+		fullLen := len(nameFull) + 1 + len(branchFull) + 1 + len(countStr) + len(abStr) + prWidth
 		if fullLen <= avail {
 			name := nameStyle.Render(nameFull)
 			branch := bg.Bold(false).Foreground(lipgloss.Color(theme.BranchName)).Render(branchFull)
 			fileCount := bg.Foreground(lipgloss.Color(theme.FileCount)).Render(countStr)
 			result := arrowStyled + sp + icon + sp + name + sp + branch + sp + fileCount
 			result += renderAheadBehind(node.Repo.Ahead, node.Repo.Behind, bg, sp, theme)
+			result += prStyled
 			return result
 		}
 
-		// Try with count: name + branch share (avail - countLen - abLen - 2 spaces)
-		availNB := avail - len(countStr) - len(abStr) - 2
+		// Try with count: name + branch share (avail - countLen - abLen - prLen - 2 spaces)
+		availNB := avail - len(countStr) - len(abStr) - prWidth - 2
 		showCount := true
 		if availNB < 7 { // not enough for meaningful name+branch with count
-			availNB = avail - len(abStr) - 1 // drop count, 1 space between name and branch
+			availNB = avail - len(abStr) - prWidth - 1 // drop count, 1 space between name and branch
 			showCount = false
 		}
 
@@ -496,6 +500,7 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 				result = arrowStyled + sp + icon + sp + name + sp + branch
 			}
 			result += renderAheadBehind(node.Repo.Ahead, node.Repo.Behind, bg, sp, theme)
+			result += prStyled
 			return result
 		}
 
@@ -518,15 +523,71 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		return prefix + arrowStyled + sp + icon + sp + name
 
 	case NodeFile:
-		// prefix + status + sp + icon + sp + name
+		// prefix + status + sp + icon + sp + name, with the line counts at the right edge
+		counts := renderLineCounts(node.File, bg, theme)
+		countsWidth := lipgloss.Width(counts)
 		fixedWidth := node.Depth*2 + 1 + 1 + 1 + 1
+		if countsWidth > 0 {
+			fixedWidth += countsWidth + 1
+		}
 		fileName := truncateStr(filepath.Base(node.File.Path), width-fixedWidth)
 		styledStatus := styleStatus(node.File.Status, node.File.IsStaged, selected, theme, cursorBg)
 		icon := fileIconStyled(node.File.Path, selected, theme, cursorBg)
 		fileStyled := bg.Render(fileName)
-		return prefix + styledStatus + sp + icon + sp + fileStyled
+		line := prefix + styledStatus + sp + icon + sp + fileStyled
+		gap := width - lipgloss.Width(line) - countsWidth
+		if countsWidth == 0 || gap < 1 {
+			return line
+		}
+		return line + bg.Render(strings.Repeat(" ", gap)) + counts
 	}
 	return ""
+}
+
+// renderLineCounts shows "+added -deleted", leaving out a zero side.
+func renderLineCounts(f *FileStatus, bg lipgloss.Style, theme Theme) string {
+	var parts []string
+	if f.Added > 0 {
+		parts = append(parts, bg.Foreground(lipgloss.Color(theme.StatusAdded)).Render(fmt.Sprintf("+%d", f.Added)))
+	}
+	if f.Deleted > 0 {
+		parts = append(parts, bg.Foreground(lipgloss.Color(theme.StatusDeleted)).Render(fmt.Sprintf("-%d", f.Deleted)))
+	}
+	return strings.Join(parts, bg.Render(" "))
+}
+
+// renderPR shows the branch's pull request: the number in the color of its state,
+// the result of the checks (open PRs only), and the count of unresolved review threads.
+func renderPR(pr *PRStatus, bg lipgloss.Style, sp string, theme Theme) string {
+	if pr == nil {
+		return ""
+	}
+	stateColor := theme.StatusAdded // open
+	switch {
+	case pr.State == "MERGED":
+		stateColor = theme.BranchName
+	case pr.State == "CLOSED":
+		stateColor = theme.StatusDeleted
+	case pr.Draft:
+		stateColor = theme.StatusUntracked
+	}
+	result := sp + bg.Foreground(lipgloss.Color(stateColor)).Render(fmt.Sprintf("#%d", pr.Number))
+
+	if pr.State == "OPEN" {
+		switch pr.Checks {
+		case "SUCCESS":
+			result += sp + bg.Foreground(lipgloss.Color(theme.StatusAdded)).Render("✓")
+		case "FAILURE", "ERROR":
+			result += sp + bg.Foreground(lipgloss.Color(theme.StatusDeleted)).Render("✗")
+		case "PENDING", "EXPECTED":
+			result += sp + bg.Foreground(lipgloss.Color(theme.StatusModified)).Render("●")
+		}
+	}
+	if pr.Unresolved > 0 {
+		//  is the Nerd Font comment icon
+		result += sp + bg.Foreground(lipgloss.Color(theme.StatusModified)).Render(fmt.Sprintf(" %d", pr.Unresolved))
+	}
+	return result
 }
 
 func renderAheadBehind(ahead, behind int, bg lipgloss.Style, sp string, theme Theme) string {

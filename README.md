@@ -79,6 +79,8 @@ Theme values accept ANSI color codes (`0`-`255`) or hex colors (`"#FF79C6"`).
 - Shows linked git worktrees as child rows under their main repo
 - File watcher auto-refreshes when files change on disk
 - Colored inline diffs with staged/unstaged detection
+- Lines added and deleted per file (`+12 -3`), compared to HEAD
+- Pull request of the current branch on each repo row: number colored by state, check result (✓ ✗ ●) and unresolved review threads. Needs the [GitHub CLI](https://cli.github.com) (`gh`), logged in. Refreshes every 2 minutes and on `r`
 - Nerd Font file icons
 - Collapsible directory tree
 - Discard changes with confirmation menu
