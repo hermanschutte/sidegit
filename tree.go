@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"hash/fnv"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -523,23 +525,34 @@ func renderNode(node TreeNode, selected bool, width int, theme Theme, cursorBg l
 		return prefix + arrowStyled + sp + icon + sp + name
 
 	case NodeFile:
-		// prefix + status + sp + icon + sp + name, with the line counts at the right edge
-		counts := renderLineCounts(node.File, bg, theme)
-		countsWidth := lipgloss.Width(counts)
+		// prefix + status + sp + icon + sp + name, with the Claude session, the line
+		// counts and the age at the right edge
 		fixedWidth := node.Depth*2 + 1 + 1 + 1 + 1
-		if countsWidth > 0 {
-			fixedWidth += countsWidth + 1
+		baseName := filepath.Base(node.File.Path)
+		recent := !node.File.ModTime.IsZero() && time.Since(node.File.ModTime) < recentChange
+		right := joinNonEmpty(sp, renderLineCounts(node.File, bg, theme), renderAge(node.File.ModTime, recent, bg, theme))
+		// The session tag gets the room that the name does not need
+		if room := width - fixedWidth - len(baseName) - lipgloss.Width(right) - 2; room >= 4 {
+			right = joinNonEmpty(sp, renderSessionTag(node.File.Edit, min(room, sessionTagMax), bg), right)
 		}
-		fileName := truncateStr(filepath.Base(node.File.Path), width-fixedWidth)
+		rightWidth := lipgloss.Width(right)
+		if rightWidth > 0 {
+			fixedWidth += rightWidth + 1
+		}
+		fileName := truncateStr(baseName, width-fixedWidth)
 		styledStatus := styleStatus(node.File.Status, node.File.IsStaged, selected, theme, cursorBg)
 		icon := fileIconStyled(node.File.Path, selected, theme, cursorBg)
-		fileStyled := bg.Render(fileName)
+		nameStyle := bg
+		if recent {
+			nameStyle = bg.Bold(true).Foreground(lipgloss.Color(theme.Title))
+		}
+		fileStyled := nameStyle.Render(fileName)
 		line := prefix + styledStatus + sp + icon + sp + fileStyled
-		gap := width - lipgloss.Width(line) - countsWidth
-		if countsWidth == 0 || gap < 1 {
+		gap := width - lipgloss.Width(line) - rightWidth
+		if rightWidth == 0 || gap < 1 {
 			return line
 		}
-		return line + bg.Render(strings.Repeat(" ", gap)) + counts
+		return line + bg.Render(strings.Repeat(" ", gap)) + right
 	}
 	return ""
 }
@@ -554,6 +567,67 @@ func renderLineCounts(f *FileStatus, bg lipgloss.Style, theme Theme) string {
 		parts = append(parts, bg.Foreground(lipgloss.Color(theme.StatusDeleted)).Render(fmt.Sprintf("-%d", f.Deleted)))
 	}
 	return strings.Join(parts, bg.Render(" "))
+}
+
+// A file that changed less than recentChange ago shows its name and age in the title color.
+const recentChange = 30 * time.Second
+
+// renderAge shows how long ago the file changed: "12s", "5m", "3h" or "2d".
+func renderAge(modTime time.Time, recent bool, bg lipgloss.Style, theme Theme) string {
+	if modTime.IsZero() {
+		return ""
+	}
+	d := max(time.Since(modTime), 0)
+	var age string
+	switch {
+	case d < time.Minute:
+		age = fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		age = fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		age = fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		age = fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+	color := theme.StatusUntracked
+	if recent {
+		color = theme.Title
+	}
+	return bg.Foreground(lipgloss.Color(color)).Render(fmt.Sprintf("%3s", age))
+}
+
+const sessionTagMax = 16
+
+// Each Claude Code session gets one of these colors, so files from one session look alike.
+var sessionColors = []string{"39", "170", "214", "114", "204", "141", "80", "179"}
+
+// renderSessionTag shows the name of the Claude Code session that last edited the file.
+func renderSessionTag(e *ClaudeEdit, maxWidth int, bg lipgloss.Style) string {
+	if e == nil {
+		return ""
+	}
+	title := []rune(e.Title)
+	if len(title) == 0 {
+		title = []rune(e.Session)
+		title = title[:min(len(title), 8)]
+	}
+	if len(title) > maxWidth {
+		title = append(title[:maxWidth-1], '…')
+	}
+	h := fnv.New32a()
+	h.Write([]byte(e.Session))
+	color := sessionColors[h.Sum32()%uint32(len(sessionColors))]
+	return bg.Foreground(lipgloss.Color(color)).Render(string(title))
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	var kept []string
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, sep)
 }
 
 // renderPR shows the branch's pull request: the number in the color of its state,

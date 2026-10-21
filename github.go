@@ -12,6 +12,7 @@ type PRStatus struct {
 	Draft      bool
 	Checks     string // SUCCESS, FAILURE, ERROR, PENDING or EXPECTED; empty without checks
 	Unresolved int    // review threads not resolved yet
+	Head       string // SHA of the last commit, which the checks ran on
 }
 
 const prQuery = `query($owner:String!,$name:String!,$branch:String!){
@@ -19,7 +20,7 @@ const prQuery = `query($owner:String!,$name:String!,$branch:String!){
     pullRequests(headRefName:$branch,first:1,orderBy:{field:CREATED_AT,direction:DESC}){
       nodes{ number state isDraft
         reviewThreads(first:100){ nodes{ isResolved } }
-        commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } } } } }`
+        commits(last:1){ nodes{ commit{ oid statusCheckRollup{ state } } } } } } } }`
 
 // FetchPR asks GitHub through the gh CLI for the newest pull request of the branch.
 // It returns nil when the branch has no PR, the repo is not on GitHub, or gh fails.
@@ -47,6 +48,7 @@ func FetchPR(repoPath, branch string) *PRStatus {
 						Commits struct {
 							Nodes []struct {
 								Commit struct {
+									Oid               string
 									StatusCheckRollup *struct{ State string }
 								}
 							}
@@ -67,8 +69,11 @@ func FetchPR(repoPath, branch string) *PRStatus {
 			pr.Unresolved++
 		}
 	}
-	if len(n.Commits.Nodes) > 0 && n.Commits.Nodes[0].Commit.StatusCheckRollup != nil {
-		pr.Checks = n.Commits.Nodes[0].Commit.StatusCheckRollup.State
+	if len(n.Commits.Nodes) > 0 {
+		pr.Head = n.Commits.Nodes[0].Commit.Oid
+		if n.Commits.Nodes[0].Commit.StatusCheckRollup != nil {
+			pr.Checks = n.Commits.Nodes[0].Commit.StatusCheckRollup.State
+		}
 	}
 	return pr
 }

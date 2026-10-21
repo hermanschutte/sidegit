@@ -113,9 +113,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prsFetchedMsg:
+		notify := notifyPRChangesCmd(m.prs, msg)
 		m.prs = msg
 		m.attachPRs()
-		return m, nil
+		return m, notify
 
 	case prTickMsg:
 		return m, tea.Batch(fetchPRsCmd(m.repos), prTickCmd())

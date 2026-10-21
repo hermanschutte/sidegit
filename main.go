@@ -8,6 +8,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "claude-hook" {
+		// A hook error must not get in the way of Claude Code, so it is silent.
+		_ = runClaudeHook()
+		return
+	}
+
 	root, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

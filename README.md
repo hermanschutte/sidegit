@@ -73,6 +73,25 @@ theme:
 
 Theme values accept ANSI color codes (`0`-`255`) or hex colors (`"#FF79C6"`).
 
+## Claude Code hook
+
+To show which Claude Code session edited each file, add this hook to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "sidegit claude-hook" }]
+      }
+    ]
+  }
+}
+```
+
+The hook writes the session name for each edited file to the `sidegit` folder in your user cache folder. It does not record changes that Claude makes with Bash (for example `sed`). A file that changes again after the edit, for example by hand, loses its session name.
+
 ## Features
 
 - Scans for git repos automatically (current directory + two levels deep)
@@ -80,7 +99,10 @@ Theme values accept ANSI color codes (`0`-`255`) or hex colors (`"#FF79C6"`).
 - File watcher auto-refreshes when files change on disk
 - Colored inline diffs with staged/unstaged detection
 - Lines added and deleted per file (`+12 -3`), compared to HEAD
+- Time since each file changed (`5m`). A file that changed in the last 30 seconds shows in the title color
+- The Claude Code session that last edited each file, by the name in its terminal tab (needs the [hook](#claude-code-hook))
 - Pull request of the current branch on each repo row: number colored by state, check result (✓ ✗ ●) and unresolved review threads. Needs the [GitHub CLI](https://cli.github.com) (`gh`), logged in. Refreshes every 2 minutes and on `r`
+- A macOS notification through iTerm2 when the checks of a PR finish or new review threads come in. With the repo open in several panes, only one pane sends it
 - Nerd Font file icons
 - Collapsible directory tree
 - Discard changes with confirmation menu

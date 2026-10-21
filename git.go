@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type StatusCode string
@@ -24,8 +25,10 @@ type FileStatus struct {
 	Path     string
 	Status   StatusCode
 	IsStaged bool
-	Added    int // lines added compared to HEAD (all lines for an untracked file)
-	Deleted  int // lines deleted compared to HEAD
+	Added    int         // lines added compared to HEAD (all lines for an untracked file)
+	Deleted  int         // lines deleted compared to HEAD
+	ModTime  time.Time   // zero for a deleted file
+	Edit     *ClaudeEdit // the Claude Code session that made the last change, if any
 }
 
 func FindBranch(repoPath string) string {
@@ -92,8 +95,13 @@ func GetStatus(repoPath string) (GitStatus, error) {
 	counts := lineCounts(repoPath)
 	for i := range result.Files {
 		f := &result.Files[i]
+		abs := filepath.Join(repoPath, f.Path)
+		if info, err := os.Stat(abs); err == nil {
+			f.ModTime = info.ModTime()
+			f.Edit = lastEdit(abs, f.ModTime)
+		}
 		if f.Status == StatusUntracked {
-			f.Added = countLines(filepath.Join(repoPath, f.Path))
+			f.Added = countLines(abs)
 			continue
 		}
 		if c, ok := counts[f.Path]; ok {
