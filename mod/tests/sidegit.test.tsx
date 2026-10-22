@@ -126,16 +126,6 @@ test('git status with -z keeps spaces in paths and skips the rename source', () 
   ])
 })
 
-test('the pane has the terminal background, from the top to the last row', async ($, on) => {
-  const clock = world(on)
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  await clock.settle()
-
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.drawn()).toMatchObject({ type: 'Box', props: { backgroundColor: '#282A36', minHeight: 40 } })
-  await ui.unmount()
-})
-
 test('on the main screen the pane from session start closes, and draws nothing', async ($, on) => {
   const clock = world(on)
   await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })

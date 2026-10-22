@@ -27,8 +27,6 @@ const COLOR = {
   treeLines: '#6272A4',
   read: '#8BE9FD',
   write: '#F1FA8C',
-  // the background of the iTerm2 profile (Dracula); Claude Code paints a docked pane #262626
-  background: '#282A36',
 }
 const MARK = { read: '◉', write: '✎' }
 
@@ -141,16 +139,10 @@ export const register: Register = (on, options) => {
     const changes = list.reduce((n, r) => n + r.files.length, 0)
     const toggle = (id: string) => void update($, collapsed, ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]))
 
-    if (list.length === 0) {
-      return (
-        <Box flexDirection="column" backgroundColor={COLOR.background} minHeight={e.props.scroll.bodyRows}>
-          <Text color={COLOR.statusBar}>{dir ? `No git repositories found in ${dir}.` : 'Scanning for git repositories…'}</Text>
-        </Box>
-      )
-    }
+    if (list.length === 0) return <Text color={COLOR.statusBar}>{dir ? `No git repositories found in ${dir}.` : 'Scanning for git repositories…'}</Text>
 
     return (
-      <Box flexDirection="column" backgroundColor={COLOR.background} minHeight={e.props.scroll.bodyRows}>
+      <Box flexDirection="column">
         <Text color={COLOR.statusBar} wrap="truncate-end">
           {` ${list.length} repo(s) | ${changes} change(s)`}
           {latest ? <Text color={COLOR[latest.kind]}>{` | ${MARK[latest.kind]} ${latest.path.startsWith(`${dir}/`) ? latest.path.slice(dir.length + 1) : latest.path}`}</Text> : null}
