@@ -1,66 +1,68 @@
 // Nerd Font icons, as in the sidegit binary (tree.go), codepoints from nvim-web-devicons.
 
-export const FOLDER_ICON = ''
-const DEFAULT_ICON = ''
+export const FOLDER_ICON = '\uf07b'
+// The icon before the count of unresolved review threads on a PR
+export const COMMENT_ICON = '\uf075'
+const DEFAULT_ICON = '\uf15b'
 // The theme key for an icon with no color of its own: the text color, as the binary's
 // default_icon is the Dracula foreground
 const DEFAULT_COLOR = 'text'
 
 const BY_EXT: Record<string, string> = {
-  '.go': '', // seti-go
-  '.js': '', // seti-javascript
-  '.ts': '', // seti-typescript
-  '.tsx': '', // seti-react
-  '.jsx': '', // seti-react
-  '.py': '', // seti-python
-  '.rb': '', // seti-ruby
-  '.rs': '', // seti-rust
-  '.java': '', // dev-java
-  '.c': '', // seti-c
-  '.cpp': '', // seti-cpp
-  '.h': '', // seti-c
+  '.go': '\ue627', // seti-go
+  '.js': '\ue60c', // seti-javascript
+  '.ts': '\ue628', // seti-typescript
+  '.tsx': '\ue7ba', // seti-react
+  '.jsx': '\ue625', // seti-react
+  '.py': '\ue606', // seti-python
+  '.rb': '\ue791', // seti-ruby
+  '.rs': '\ue68b', // seti-rust
+  '.java': '\ue738', // dev-java
+  '.c': '\ue61e', // seti-c
+  '.cpp': '\ue61d', // seti-cpp
+  '.h': '\ue61e', // seti-c
   '.cs': '\u{F0911}', // md-language_csharp
-  '.php': '', // seti-php
-  '.swift': '', // dev-swift
-  '.kt': '', // seti-kotlin
-  '.html': '', // dev-html5
-  '.css': '', // seti-css
-  '.scss': '', // seti-sass
-  '.json': '', // seti-json
-  '.yaml': '', // seti-yaml
-  '.yml': '', // seti-yaml
-  '.toml': '', // seti-toml
+  '.php': '\ue608', // seti-php
+  '.swift': '\ue755', // dev-swift
+  '.kt': '\ue634', // seti-kotlin
+  '.html': '\ue736', // dev-html5
+  '.css': '\ue6b8', // seti-css
+  '.scss': '\ue603', // seti-sass
+  '.json': '\ue60b', // seti-json
+  '.yaml': '\ue615', // seti-yaml
+  '.yml': '\ue615', // seti-yaml
+  '.toml': '\ue6b2', // seti-toml
   '.xml': '\u{F05C0}', // md-xml
-  '.md': '', // oct-markdown
-  '.sh': '', // seti-shell
-  '.bash': '', // seti-shell
-  '.zsh': '', // seti-shell
-  '.fish': '', // seti-shell
-  '.sql': '', // dev-database
+  '.md': '\uf48a', // oct-markdown
+  '.sh': '\ue795', // seti-shell
+  '.bash': '\ue795', // seti-shell
+  '.zsh': '\ue795', // seti-shell
+  '.fish': '\ue795', // seti-shell
+  '.sql': '\ue706', // dev-database
   '.svg': '\u{F0721}', // md-svg
-  '.png': '', // seti-image
-  '.jpg': '', // seti-image
-  '.jpeg': '', // seti-image
-  '.gif': '', // seti-image
-  '.vue': '', // seti-vue
-  '.svelte': '', // seti-svelte
-  '.lua': '', // seti-lua
-  '.vim': '', // seti-vim
-  '.lock': '', // seti-lock
-  '.env': '', // oct-key
-  '.gitignore': '', // dev-git
-  '.mod': '', // seti-go
-  '.sum': '', // seti-go
+  '.png': '\ue60d', // seti-image
+  '.jpg': '\ue60d', // seti-image
+  '.jpeg': '\ue60d', // seti-image
+  '.gif': '\ue60d', // seti-image
+  '.vue': '\ue6a0', // seti-vue
+  '.svelte': '\ue697', // seti-svelte
+  '.lua': '\ue620', // seti-lua
+  '.vim': '\ue62b', // seti-vim
+  '.lock': '\ue672', // seti-lock
+  '.env': '\uf462', // oct-key
+  '.gitignore': '\ue702', // dev-git
+  '.mod': '\ue627', // seti-go
+  '.sum': '\ue627', // seti-go
 }
 
 // Whole file names, matched before the extension
 const BY_NAME: Record<string, string> = {
   Dockerfile: '\u{F01A8}', // md-docker
-  Makefile: '', // seti-makefile
-  LICENSE: '', // seti-license
-  '.gitignore': '', // dev-git
-  'go.mod': '', // seti-go
-  'go.sum': '', // seti-go
+  Makefile: '\ue673', // seti-makefile
+  LICENSE: '\ue62f', // seti-license
+  '.gitignore': '\ue702', // dev-git
+  'go.mod': '\ue627', // seti-go
+  'go.sum': '\ue627', // seti-go
 }
 
 // File-type colors, which no Claude Code theme has

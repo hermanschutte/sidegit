@@ -34,6 +34,18 @@ export type Touch = {
   at: number
 }
 
+/** The newest GitHub pull request of a branch. */
+export type PRStatus = {
+  number: number
+  /** OPEN, MERGED or CLOSED */
+  state: string
+  draft: boolean
+  /** SUCCESS, FAILURE, ERROR, PENDING or EXPECTED; empty without checks */
+  checks: string
+  /** review threads not resolved yet */
+  unresolved: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     sidegit: {
@@ -42,6 +54,8 @@ declare module 'claude-code' {
       /** ids of the collapsed repo and folder rows */
       collapsed: string[]
       touches: Touch[]
+      /** by repo path and branch; null when the branch has no PR */
+      prs: Record<string, PRStatus | null>
     }
   }
 }

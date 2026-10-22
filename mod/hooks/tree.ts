@@ -71,17 +71,18 @@ export function ancestorIds(repos: Repo[], path: string): string[] {
 }
 
 // fitRepo shortens the name and branch of a repo row to fit width, as sidegit does.
-// An empty branch means the row only has room for the name.
-export function fitRepo(repo: Repo, width: number): { name: string; branch: string; count: string } {
+// prWidth is the cells the PR status takes after them. An empty branch means the row
+// only has room for the name, and then shows no ahead, behind or PR status either.
+export function fitRepo(repo: Repo, width: number, prWidth = 0): { name: string; branch: string; count: string } {
   const avail = width - 2 // the arrow and a space
   const branch = `[${repo.branch}]`
   const count = `(${repo.files.length})`
   const ab = (repo.ahead > 0 ? ` ↑${repo.ahead}` : '') + (repo.behind > 0 ? ` ↓${repo.behind}` : '')
-  if (repo.name.length + 1 + branch.length + 1 + count.length + ab.length <= avail) return { name: repo.name, branch, count }
-  let room = avail - count.length - ab.length - 2
+  if (repo.name.length + 1 + branch.length + 1 + count.length + ab.length + prWidth <= avail) return { name: repo.name, branch, count }
+  let room = avail - count.length - ab.length - prWidth - 2
   let shownCount = count
   if (room < 7) {
-    room = avail - ab.length - 1
+    room = avail - ab.length - prWidth - 1
     shownCount = ''
   }
   const [name, shownBranch] = fitNameAndBranch(repo.name, branch, room)

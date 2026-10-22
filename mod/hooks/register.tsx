@@ -1,13 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { FileStatus, Repo, Touch } from '../types'
+import type { FileStatus, PRStatus, Repo, Touch } from '../types'
 import { findRepos, readRepo } from './git'
-import { FOLDER_ICON, fileIcon } from './icons'
+import { fetchPR } from './github'
+import { COMMENT_ICON, FOLDER_ICON, fileIcon } from './icons'
 import { age, ancestorIds, buildRows, fitRepo } from './tree'
 
 const PANE = 'sidegit'
 const POLL_MS = 10_000 // the sidegit default poll_interval
+const PR_POLL_MS = 2 * 60_000 // PRs come from the GitHub API, so they refresh less often, as in sidegit
 const RECENT_MS = 30_000 // a file that changed less than this ago shows in the title color
 const TOUCH_MS = 8_000 // how long a file Claude read or wrote stays marked after the call
 const MAX_TOUCHES = 20
@@ -43,9 +45,29 @@ const root = atom({ plugin: 'sidegit', key: 'root' } as const, '')
 const repos = atom({ plugin: 'sidegit', key: 'repos' } as const, [] as Repo[])
 const collapsed = atom({ plugin: 'sidegit', key: 'collapsed' } as const, [] as string[])
 const touches = atom({ plugin: 'sidegit', key: 'touches' } as const, [] as Touch[])
+const prs = atom({ plugin: 'sidegit', key: 'prs' } as const, {} as Record<string, PRStatus | null>)
+
+// A PR is kept by repo and branch, so after a branch switch the repo shows no PR until the next fetch
+const prKey = (repo: Repo) => `${repo.path}\n${repo.branch}`
 
 let refreshing: Promise<void> | null = null
 let again = false
+let fetchingPRs = false
+
+// refreshPRs asks GitHub for the PR of each repo's branch. A detached HEAD has no branch to ask about.
+async function refreshPRs($: EngineInterface): Promise<void> {
+  if (fetchingPRs) return
+  fetchingPRs = true
+  try {
+    const list = (await read($, repos)).filter(r => r.branch !== 'HEAD' && r.branch !== 'unknown')
+    const found = await Promise.all(list.map(async r => [prKey(r), await fetchPR($, r.path, r.branch)] as const))
+    await update($, prs, () => Object.fromEntries(found))
+  } catch (err) {
+    $.ui.log(`sidegit: ${String(err)}`)
+  } finally {
+    fetchingPRs = false
+  }
+}
 
 // refresh finds the repos under the project folder and reads the git status of each.
 // A call while a scan runs makes that scan run once more.
@@ -89,6 +111,22 @@ function statusColor(f: FileStatus): string | undefined {
   return undefined
 }
 
+// prParts is the PR status after a repo row, as the sidegit binary draws it: the number in the
+// color of its state, the result of the checks (open PRs only), and the count of unresolved
+// review threads. Without Nerd Font icons the threads get a speech balloon.
+function prParts(pr: PRStatus | null | undefined, icons: boolean): { text: string; color: string }[] {
+  if (!pr) return []
+  const state = pr.state === 'MERGED' ? COLOR.branchName : pr.state === 'CLOSED' ? COLOR.deleted : pr.draft ? COLOR.untracked : COLOR.added
+  const parts = [{ text: ` #${pr.number}`, color: state }]
+  if (pr.state === 'OPEN') {
+    if (pr.checks === 'SUCCESS') parts.push({ text: ' ✓', color: COLOR.added })
+    else if (pr.checks === 'FAILURE' || pr.checks === 'ERROR') parts.push({ text: ' ✗', color: COLOR.deleted })
+    else if (pr.checks === 'PENDING' || pr.checks === 'EXPECTED') parts.push({ text: ' ●', color: COLOR.modified })
+  }
+  if (pr.unresolved > 0) parts.push({ text: ` ${icons ? COMMENT_ICON : '💬'} ${pr.unresolved}`, color: COLOR.modified })
+  return parts
+}
+
 export const register: Register = (on, options) => {
   // The "Pane width" setting in /config. A width the person drags wins.
   const columns = typeof options?.width === 'number' ? Math.max(24, Math.round(options.width)) : 56
@@ -96,9 +134,12 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'sidegit', description: 'Show the git changes of every repo in the project folder' })
     void $.ui.open({ id: PANE, title: 'sidegit', columns })
-    void refresh($)
+    void refresh($).then(() => refreshPRs($))
     $.clock.every(POLL_MS, () => {
       void $.ui.panes().then(panes => (panes.some(p => p.id === PANE) ? refresh($) : undefined))
+    })
+    $.clock.every(PR_POLL_MS, () => {
+      void $.ui.panes().then(panes => (panes.some(p => p.id === PANE) ? refreshPRs($) : undefined))
     })
     return next(e)
   })
@@ -112,7 +153,7 @@ export const register: Register = (on, options) => {
     if (terminal && !e.presentation.isFullscreen) return { text: 'sidegit shows on the side only in the fullscreen layout. Run /tui fullscreen, then /sidegit.' }
     if (terminal && e.presentation.columns < 110) return { text: 'sidegit shows on the side only in a terminal at least 110 columns wide. Widen the terminal, then run /sidegit.' }
     const opened = await $.ui.open({ id: PANE, title: 'sidegit', columns })
-    void refresh($)
+    void refresh($).then(() => refreshPRs($))
     return { text: opened.isPlaced ? 'sidegit pane opened.' : `The sidegit pane is not shown: ${opened.reason}` }
   })
 
@@ -145,7 +186,7 @@ export const register: Register = (on, options) => {
       void $.ui.close({ id: PANE }).catch(() => undefined)
       return <Box />
     }
-    const [dir, list, closed, touched, now] = await Promise.all([read($, root), read($, repos), read($, collapsed), read($, touches), $.clock.now()])
+    const [dir, list, closed, touched, prMap, now] = await Promise.all([read($, root), read($, repos), read($, collapsed), read($, touches), read($, prs), $.clock.now()])
     const width = Math.max(20, e.props.bodyColumns)
     const live = new Map(touched.filter(t => t.running || now - t.at < TOUCH_MS).map(t => [t.path, t]))
     const latest = [...live.values()].pop()
@@ -162,8 +203,9 @@ export const register: Register = (on, options) => {
         </Text>
         {buildRows(list, new Set(closed)).map(row => {
           if (row.kind === 'repo') {
+            const pr = prParts(prMap[prKey(row.repo)], icons)
             // The folder icon and its space take two columns from the name and branch
-            const fit = fitRepo(row.repo, icons ? width - 2 : width)
+            const fit = fitRepo(row.repo, icons ? width - 2 : width, pr.reduce((n, p) => n + [...p.text].length, 0))
             return (
               <Button key={row.id} plain onPress={() => toggle(row.id)}>
                 {row.collapsed ? '▸ ' : '▾ '}
@@ -173,6 +215,7 @@ export const register: Register = (on, options) => {
                 {fit.count ? <Text color={COLOR.fileCount}>{` ${fit.count}`}</Text> : null}
                 {fit.branch && row.repo.ahead > 0 ? <Text color={COLOR.added}>{` ↑${row.repo.ahead}`}</Text> : null}
                 {fit.branch && row.repo.behind > 0 ? <Text color={COLOR.deleted}>{` ↓${row.repo.behind}`}</Text> : null}
+                {fit.branch ? pr.map(p => <Text color={p.color}>{p.text}</Text>) : null}
               </Button>
             )
           }

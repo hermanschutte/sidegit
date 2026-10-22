@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { parseStatus } from '../hooks/git'
+import { parsePR } from '../hooks/github'
 import { fileIcon } from '../hooks/icons'
 
 const PANE = {
@@ -31,6 +32,28 @@ const GIT: Record<string, Record<string, string>> = {
   },
 }
 
+// gh's answer for a branch with no PR, and for one with an open PR #12: checks passed and two
+// of three review threads unresolved
+const NO_PR = '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}'
+const pr = (state: string, isDraft: boolean, checks: string | null) =>
+  JSON.stringify({
+    data: {
+      repository: {
+        pullRequests: {
+          nodes: [
+            {
+              number: 12,
+              state,
+              isDraft,
+              reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }, { isResolved: false }] },
+              commits: { nodes: [{ commit: { statusCheckRollup: checks ? { state: checks } : null } }] },
+            },
+          ],
+        },
+      },
+    },
+  })
+
 // The tool inputs of every connected MCP server join one union that tsc cannot resolve
 // $.tool.call against, so the tests call it through this narrower type.
 type CallTool = (input: { tool: string } & Record<string, string>) => Promise<unknown>
@@ -38,7 +61,8 @@ type CallTool = (input: { tool: string } & Record<string, string>) => Promise<un
 // The pane opens (with the width each asked for) and closes the mod asked for, in order.
 const paneCalls: string[] = []
 
-function world(on: On) {
+// world answers the engine's calls for two repos in /work. prOutput is gh's answer per repo folder.
+function world(on: On, prOutput: Record<string, string> = {}) {
   const clock = mock.clock(on, { now: 100_000 })
   const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
   paneCalls.length = 0
@@ -59,6 +83,7 @@ function world(on: On) {
   on('process.run', (_, e) => {
     const [cmd, , , repo, sub] = e.argv
     if (cmd === 'find') return ok(FIND)
+    if (cmd === 'gh') return ok(prOutput[e.init?.cwd ?? ''] ?? NO_PR)
     return ok(GIT[repo ?? '']?.[sub ?? ''] ?? '')
   })
   on('fs.stat', () => ({ value: { kind: 'file', size: 4, mtimeMs: 40_000, isLink: false } }))
@@ -75,13 +100,13 @@ test('one tree shows the changes of every repo in the folder, on every surface',
     const ui = await $.ui.mount({ ...PANE, surface })
     // Nerd Font icons show on the terminal only
     const icon = (glyph: string) => (surface === 'terminal' ? `${glyph} ` : '')
-    expect((await ui.find({ key: 'repo:/work/api' }))?.text).toBe(`▾ ${icon('')}api [main] (2) ↑1`)
-    expect((await ui.find({ key: 'repo:/work/web' }))?.text).toBe(`▾ ${icon('')}web [feature/x] (1)`)
+    expect((await ui.find({ key: 'repo:/work/api' }))?.text).toBe(`▾ ${icon('\uf07b')}api [main] (2) ↑1`)
+    expect((await ui.find({ key: 'repo:/work/web' }))?.text).toBe(`▾ ${icon('\uf07b')}web [feature/x] (1)`)
     expect(await ui.find({ key: 'repo:/work/.cache/old' })).toBeUndefined()
-    expect((await ui.find({ key: 'dir:/work/api/src' }))?.text).toBe(`▾ ${icon('')}src`)
-    expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(new RegExp(`│ └ M ${icon('')}server\\.ts\\s*\\+3 -1\\s+1m$`))
-    expect((await ui.find({ key: 'row:/work/api/notes.md' }))?.text).toMatch(new RegExp(`└ \\? ${icon('')}notes\\.md\\s*\\+2\\s+1m$`))
-    expect((await ui.find({ key: 'row:/work/web/app/page.tsx' }))?.text).toMatch(new RegExp(`A ${icon('')}page\\.tsx\\s*\\+12\\s+1m$`))
+    expect((await ui.find({ key: 'dir:/work/api/src' }))?.text).toBe(`▾ ${icon('\uf07b')}src`)
+    expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(new RegExp(`│ └ M ${icon('\ue628')}server\\.ts\\s*\\+3 -1\\s+1m$`))
+    expect((await ui.find({ key: 'row:/work/api/notes.md' }))?.text).toMatch(new RegExp(`└ \\? ${icon('\uf48a')}notes\\.md\\s*\\+2\\s+1m$`))
+    expect((await ui.find({ key: 'row:/work/web/app/page.tsx' }))?.text).toMatch(new RegExp(`A ${icon('\ue7ba')}page\\.tsx\\s*\\+12\\s+1m$`))
     expect((await ui.find({ type: 'Text', text: /repo\(s\)/ }))?.text).toBe(' 2 repo(s) | 3 change(s)')
     await ui.unmount()
   }
@@ -204,4 +229,38 @@ test('a file gets the icon of its name, else of its extension, else the plain fi
   expect(fileIcon('README.md')).toEqual({ icon: '\uf48a', color: '#DDDDDD' })
   expect(fileIcon('App.TSX')).toEqual({ icon: '\ue7ba', color: '#1354BF' })
   expect(fileIcon('notes.xyz')).toEqual({ icon: '\uf15b', color: 'text' })
+})
+
+test('a repo row shows the PR of its branch, its checks and its unresolved threads', async ($, on) => {
+  const clock = world(on, { '/work/api': pr('OPEN', false, 'SUCCESS') })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await terminal.find({ key: 'repo:/work/api' }))?.text).toBe('\u25be \uf07b api [main] (2) \u21911 #12 \u2713 \uf075 2')
+  expect((await terminal.find({ key: 'repo:/work/web' }))?.text).toBe('\u25be \uf07b web [feature/x] (1)')
+  await terminal.unmount()
+
+  // Without Nerd Font icons the threads get a speech balloon
+  const vscode = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  expect((await vscode.find({ key: 'repo:/work/api' }))?.text).toBe('\u25be api [main] (2) \u21911 #12 \u2713 \u{1F4AC} 2')
+  await vscode.unmount()
+})
+
+test('a narrow row drops the PR status with the branch', async ($, on) => {
+  const clock = world(on, { '/work/api': pr('OPEN', false, 'SUCCESS') })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 9 } })
+  expect((await ui.find({ key: 'repo:/work/api' }))?.text).toBe('\u25be \uf07b api')
+  await ui.unmount()
+})
+
+test('the GitHub answer gives the PR number, state, checks and unresolved threads', () => {
+  expect(parsePR(pr('OPEN', false, 'FAILURE'))).toEqual({ number: 12, state: 'OPEN', draft: false, checks: 'FAILURE', unresolved: 2 })
+  expect(parsePR(pr('OPEN', true, null))).toEqual({ number: 12, state: 'OPEN', draft: true, checks: '', unresolved: 2 })
+  expect(parsePR(pr('MERGED', false, 'SUCCESS'))?.state).toBe('MERGED')
+  expect(parsePR(NO_PR)).toBeNull()
+  expect(parsePR('gh: not logged in')).toBeNull()
 })
