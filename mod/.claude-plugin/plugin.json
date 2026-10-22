@@ -1,0 +1,6 @@
+{
+  "name": "sidegit",
+  "version": "0.1.0",
+  "description": "The git changes of every repo in the project folder, in a pane beside the chat, with the file Claude reads or edits marked",
+  "types": "./types/index.d.ts"
+}

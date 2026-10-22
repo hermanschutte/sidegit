@@ -92,6 +92,20 @@ To show which Claude Code session edited each file, add this hook to `~/.claude/
 
 The hook writes the session name for each edited file to the `sidegit` folder in your user cache folder. It does not record changes that Claude makes with Bash (for example `sed`). A file that changes again after the edit, for example by hand, loses its session name.
 
+## Claude Code mod
+
+The `mod` folder holds a version of sidegit that runs inside Claude Code, in a pane beside the chat. It shows the same tree of repos and changed files for the session's project folder. It marks the file that Claude reads (`◉`) or edits (`✎`), opens collapsed rows to show a file that Claude edits, and refreshes after each edit and each Bash command. It does not show pull requests, worktrees, session names or diffs. Use the `sidegit` binary for those.
+
+Load it in a session:
+
+```
+claude --plugin-dir /path/to/sidegit/mod
+```
+
+The pane needs the fullscreen layout (`/tui fullscreen`) and a terminal at least 110 columns wide. `/sidegit` opens it. Tested on Claude Code 2.1.308.
+
+Run the tests with `claude plugin test mod`.
+
 ## Features
 
 - Scans for git repos automatically (current directory + two levels deep)
