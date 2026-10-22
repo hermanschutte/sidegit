@@ -96,10 +96,14 @@ test('the file Claude edits pulses, and the pulse goes after the call', async ($
   expect((await ui.find({ type: 'Text', text: ' ✎ server.ts', in: pulse }))?.text).toBe(' ✎ server.ts')
   expect((await ui.find({ type: 'Text', text: /repo\(s\)/ }))?.text).toBe(' 2 repo(s) | 3 change(s) | ✎ api/src/server.ts')
 
-  // The band moves across the name on the pane's own frame clock
-  const before = JSON.stringify(await ui.drawn({ in: pulse }))
-  await ui.advance(180)
-  expect(JSON.stringify(await ui.drawn({ in: pulse }))).not.toBe(before)
+  // A narrow band moves across the name on the pane's own frame clock: three letters in the
+  // theme's claudeShimmer color, the rest in its claude color
+  const count = (tree: unknown, color: string) => JSON.stringify(tree).split(`"color":"${color}"`).length - 1
+  const before = await ui.drawn({ in: pulse })
+  await ui.advance(420)
+  const after = await ui.drawn({ in: pulse })
+  expect(JSON.stringify(after)).not.toBe(JSON.stringify(before))
+  expect([count(after, 'claudeShimmer'), count(after, 'claude')]).toEqual([3, ' ✎ server.ts'.length - 3])
 
   await clock.advance(9_000)
   expect(await ui.find({ key: pulse })).toBeUndefined()

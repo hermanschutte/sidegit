@@ -11,28 +11,30 @@ const RECENT_MS = 30_000 // a file that changed less than this ago shows in the 
 const TOUCH_MS = 8_000 // how long a file Claude read or wrote stays marked after the call
 const MAX_TOUCHES = 20
 
-// The theme in ~/.config/sidegit/config.yaml
+// Keys of the Claude Code theme, so the pane follows the person's theme. In the Dracula
+// theme each one has the color the sidegit binary's Dracula config uses.
 const COLOR = {
-  title: '#BD93F9',
-  statusBar: '#6272A4',
-  repoName: '#FF79C6',
-  branchName: '#8BE9FD',
-  fileCount: '#6272A4',
-  dirName: '#6272A4',
-  staged: '#50FA7B',
-  added: '#50FA7B',
-  deleted: '#FF5555',
-  modified: '#FFB86C',
-  untracked: '#6272A4',
-  treeLines: '#6272A4',
-  read: '#8BE9FD',
-  write: '#F1FA8C',
+  title: 'claude',
+  statusBar: 'inactive',
+  repoName: 'permission',
+  branchName: 'suggestion',
+  fileCount: 'inactive',
+  dirName: 'inactive',
+  staged: 'success',
+  added: 'success',
+  deleted: 'error',
+  modified: 'warning',
+  untracked: 'inactive',
+  treeLines: 'inactive',
+  read: 'inactive',
+  write: 'claude',
 }
 const MARK = { read: '◉', write: '✎' }
-// The pulse on a marked file name: from the mark color to the white center of the band
+// The shimmer on a marked file name, in the theme colors Claude Code shimmers its own text
+// with: the mark color, and its shimmer color on the three letters of the band
 const PULSE = {
-  read: ['#8BE9FD', '#ADF0FE', '#D0F7FE', '#FFFFFF'],
-  write: ['#F1FA8C', '#F5FBAF', '#FAFDD2', '#FFFFFF'],
+  read: ['inactive', 'inactiveShimmer', 'inactiveShimmer'],
+  write: ['claude', 'claudeShimmer', 'claudeShimmer'],
 }
 
 const root = atom({ plugin: 'sidegit', key: 'root' } as const, '')
