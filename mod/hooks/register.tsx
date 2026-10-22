@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { FileStatus, Repo, Touch } from '../types'
 import { findRepos, readRepo } from './git'
+import { FOLDER_ICON, fileIcon } from './icons'
 import { age, ancestorIds, buildRows, fitRepo } from './tree'
 
 const PANE = 'sidegit'
@@ -26,6 +27,7 @@ const COLOR = {
   modified: 'warning',
   untracked: 'inactive',
   treeLines: 'inactive',
+  folderIcon: 'remember',
   read: 'inactive',
   write: 'claude',
 }
@@ -136,6 +138,8 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     // The terminal and the desktop app draw a Client; VS Code and the mobile app do not
     const Client = e.surface === 'terminal' || e.surface === 'desktop' ? $.ui.resolve(e).Client : undefined
+    // Nerd Font icons only on the terminal: the other surfaces draw with fonts that lack them
+    const icons = e.surface === 'terminal'
     // On the terminal's main screen the pane that session start opened sits above the prompt
     if (e.surface === 'terminal' && e.props.placement === 'inline') {
       void $.ui.close({ id: PANE }).catch(() => undefined)
@@ -158,10 +162,12 @@ export const register: Register = (on, options) => {
         </Text>
         {buildRows(list, new Set(closed)).map(row => {
           if (row.kind === 'repo') {
-            const fit = fitRepo(row.repo, width)
+            // The folder icon and its space take two columns from the name and branch
+            const fit = fitRepo(row.repo, icons ? width - 2 : width)
             return (
               <Button key={row.id} plain onPress={() => toggle(row.id)}>
                 {row.collapsed ? '▸ ' : '▾ '}
+                {icons ? <Text color={COLOR.folderIcon}>{`${FOLDER_ICON} `}</Text> : null}
                 <Text bold color={COLOR.repoName}>{fit.name}</Text>
                 {fit.branch ? <Text color={COLOR.branchName}>{` ${fit.branch}`}</Text> : null}
                 {fit.count ? <Text color={COLOR.fileCount}>{` ${fit.count}`}</Text> : null}
@@ -176,6 +182,7 @@ export const register: Register = (on, options) => {
                 <Text color={COLOR.treeLines}>{row.guides}</Text>
                 <Button key={row.id} plain onPress={() => toggle(row.id)}>
                   {row.collapsed ? '▸ ' : '▾ '}
+                  {icons ? <Text color={COLOR.folderIcon}>{`${FOLDER_ICON} `}</Text> : null}
                   <Text bold color={COLOR.dirName}>{row.name}</Text>
                 </Button>
               </Box>
@@ -186,6 +193,8 @@ export const register: Register = (on, options) => {
           const since = now - f.mtimeMs
           const recent = f.mtimeMs > 0 && since < RECENT_MS
           const name = row.id.slice(row.id.lastIndexOf('/') + 1)
+          const icon = fileIcon(name)
+          // While a file is marked, the mark takes the place of its icon
           const pulse =
             Client && touch ? (
               <Client key={`pulse:${row.id}`} module="./pulse.tsx" props={{ text: ` ${MARK[touch.kind]} ${name}`, colors: PULSE[touch.kind] }} />
@@ -199,7 +208,10 @@ export const register: Register = (on, options) => {
                   {pulse ? null : touch ? (
                     <Text bold color={COLOR[touch.kind]}>{` ${MARK[touch.kind]} ${name}`}</Text>
                   ) : (
-                    <Text bold={recent} color={recent ? COLOR.title : undefined}>{` ${name}`}</Text>
+                    <Text>
+                      {icons ? <Text color={icon.color}>{` ${icon.icon}`}</Text> : null}
+                      <Text bold={recent} color={recent ? COLOR.title : undefined}>{` ${name}`}</Text>
+                    </Text>
                   )}
                 </Text>
                 {pulse}

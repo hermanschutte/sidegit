@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { parseStatus } from '../hooks/git'
+import { fileIcon } from '../hooks/icons'
 
 const PANE = {
   plugin: 'sidegit',
@@ -72,13 +73,15 @@ test('one tree shows the changes of every repo in the folder, on every surface',
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ key: 'repo:/work/api' }))?.text).toBe('▾ api [main] (2) ↑1')
-    expect((await ui.find({ key: 'repo:/work/web' }))?.text).toBe('▾ web [feature/x] (1)')
+    // Nerd Font icons show on the terminal only
+    const icon = (glyph: string) => (surface === 'terminal' ? `${glyph} ` : '')
+    expect((await ui.find({ key: 'repo:/work/api' }))?.text).toBe(`▾ ${icon('')}api [main] (2) ↑1`)
+    expect((await ui.find({ key: 'repo:/work/web' }))?.text).toBe(`▾ ${icon('')}web [feature/x] (1)`)
     expect(await ui.find({ key: 'repo:/work/.cache/old' })).toBeUndefined()
-    expect((await ui.find({ key: 'dir:/work/api/src' }))?.text).toBe('▾ src')
-    expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(/│ └ M server\.ts\s*\+3 -1\s+1m$/)
-    expect((await ui.find({ key: 'row:/work/api/notes.md' }))?.text).toMatch(/└ \? notes\.md\s*\+2\s+1m$/)
-    expect((await ui.find({ key: 'row:/work/web/app/page.tsx' }))?.text).toMatch(/A page\.tsx\s*\+12\s+1m$/)
+    expect((await ui.find({ key: 'dir:/work/api/src' }))?.text).toBe(`▾ ${icon('')}src`)
+    expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(new RegExp(`│ └ M ${icon('')}server\\.ts\\s*\\+3 -1\\s+1m$`))
+    expect((await ui.find({ key: 'row:/work/api/notes.md' }))?.text).toMatch(new RegExp(`└ \\? ${icon('')}notes\\.md\\s*\\+2\\s+1m$`))
+    expect((await ui.find({ key: 'row:/work/web/app/page.tsx' }))?.text).toMatch(new RegExp(`A ${icon('')}page\\.tsx\\s*\\+12\\s+1m$`))
     expect((await ui.find({ type: 'Text', text: /repo\(s\)/ }))?.text).toBe(' 2 repo(s) | 3 change(s)')
     await ui.unmount()
   }
@@ -94,6 +97,8 @@ test('the file Claude edits pulses, and the pulse goes after the call', async ($
   await ($.tool.call as unknown as CallTool)({ tool: 'Edit', file_path: '/work/api/src/server.ts', old_string: 'a', new_string: 'b' })
   await clock.settle()
   expect((await ui.find({ type: 'Text', text: ' ✎ server.ts', in: pulse }))?.text).toBe(' ✎ server.ts')
+  // The mark takes the place of the file's icon
+  expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).not.toContain('\ue628')
   expect((await ui.find({ type: 'Text', text: /repo\(s\)/ }))?.text).toBe(' 2 repo(s) | 3 change(s) | ✎ api/src/server.ts')
 
   // A narrow band moves across the name on the pane's own frame clock: three letters in the
@@ -107,7 +112,7 @@ test('the file Claude edits pulses, and the pulse goes after the call', async ($
 
   await clock.advance(9_000)
   expect(await ui.find({ key: pulse })).toBeUndefined()
-  expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(/M server\.ts/)
+  expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(/M \ue628 server\.ts/)
   await ui.unmount()
 })
 
@@ -131,12 +136,12 @@ test('an edit opens the collapsed rows that hold the file', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await ui.press({ key: 'repo:/work/api' })
-  expect((await ui.find({ key: 'repo:/work/api' }))?.text).toMatch(/^▸ api/)
+  expect((await ui.find({ key: 'repo:/work/api' }))?.text).toMatch(/^▸ \uf07b api/)
   expect(await ui.find({ key: 'row:/work/api/src/server.ts' })).toBeUndefined()
 
   await ($.tool.call as unknown as CallTool)({ tool: 'Write', file_path: '/work/api/src/server.ts', content: 'b' })
   await clock.settle()
-  expect((await ui.find({ key: 'repo:/work/api' }))?.text).toMatch(/^▾ api/)
+  expect((await ui.find({ key: 'repo:/work/api' }))?.text).toMatch(/^▾ \uf07b api/)
   expect(await ui.find({ key: 'row:/work/api/src/server.ts' })).toBeDefined()
   await ui.unmount()
 })
@@ -191,4 +196,12 @@ test('a Pane width under 24 opens at 24', { options: { width: 10 } }, async ($, 
   await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
   await clock.settle()
   expect(paneCalls).toEqual(['open 24'])
+})
+
+test('a file gets the icon of its name, else of its extension, else the plain file icon', () => {
+  expect(fileIcon('Dockerfile')).toEqual({ icon: '\u{F01A8}', color: 'text' })
+  expect(fileIcon('.gitignore')).toEqual({ icon: '\ue702', color: '#F54D27' })
+  expect(fileIcon('README.md')).toEqual({ icon: '\uf48a', color: '#DDDDDD' })
+  expect(fileIcon('App.TSX')).toEqual({ icon: '\ue7ba', color: '#1354BF' })
+  expect(fileIcon('notes.xyz')).toEqual({ icon: '\uf15b', color: 'text' })
 })
