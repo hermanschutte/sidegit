@@ -104,7 +104,7 @@ claude --plugin-dir /path/to/sidegit/mod
 
 The pane needs the fullscreen layout (`/tui fullscreen`) and a terminal at least 110 columns wide. `/sidegit` opens it. Tested on Claude Code 2.1.308.
 
-The pane opens 56 columns wide. Change that with "Pane width" under sidegit in `/config`. Drag the edge of the pane to change the width for the session.
+The pane opens 56 columns wide. Change that with "Pane width" in `/plugin configure sidegit`. Drag the edge of the pane to change the width for the session.
 
 Run the tests with `claude plugin test mod`.
 
