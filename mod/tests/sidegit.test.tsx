@@ -84,19 +84,43 @@ test('one tree shows the changes of every repo in the folder, on every surface',
   }
 })
 
-test('the file Claude edits is marked, and the mark goes after the call', async ($, on) => {
+test('the file Claude edits pulses, and the pulse goes after the call', async ($, on) => {
   const clock = world(on)
   await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
   await clock.settle()
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pulse = 'pulse:/work/api/src/server.ts'
+
+  await ($.tool.call as unknown as CallTool)({ tool: 'Edit', file_path: '/work/api/src/server.ts', old_string: 'a', new_string: 'b' })
+  await clock.settle()
+  expect((await ui.find({ type: 'Text', text: ' ✎ server.ts', in: pulse }))?.text).toBe(' ✎ server.ts')
+  expect((await ui.find({ type: 'Text', text: /repo\(s\)/ }))?.text).toBe(' 2 repo(s) | 3 change(s) | ✎ api/src/server.ts')
+
+  // A narrow band moves across the name on the pane's own frame clock: three letters in the
+  // theme's claudeShimmer color, the rest in its claude color
+  const count = (tree: unknown, color: string) => JSON.stringify(tree).split(`"color":"${color}"`).length - 1
+  const before = await ui.drawn({ in: pulse })
+  await ui.advance(420)
+  const after = await ui.drawn({ in: pulse })
+  expect(JSON.stringify(after)).not.toBe(JSON.stringify(before))
+  expect([count(after, 'claudeShimmer'), count(after, 'claude')]).toEqual([3, ' ✎ server.ts'.length - 3])
+
+  await clock.advance(9_000)
+  expect(await ui.find({ key: pulse })).toBeUndefined()
+  expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(/M server\.ts/)
+  await ui.unmount()
+})
+
+test('where no Client is drawn (VS Code), the edited file keeps a plain mark', async ($, on) => {
+  const clock = world(on)
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
 
   await ($.tool.call as unknown as CallTool)({ tool: 'Edit', file_path: '/work/api/src/server.ts', old_string: 'a', new_string: 'b' })
   await clock.settle()
   expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).toMatch(/M ✎ server\.ts/)
-  expect((await ui.find({ type: 'Text', text: /repo\(s\)/ }))?.text).toBe(' 2 repo(s) | 3 change(s) | ✎ api/src/server.ts')
-
-  await clock.advance(9_000)
-  expect((await ui.find({ key: 'row:/work/api/src/server.ts' }))?.text).not.toMatch(/✎/)
+  expect(await ui.find({ key: 'pulse:/work/api/src/server.ts' })).toBeUndefined()
   await ui.unmount()
 })
 

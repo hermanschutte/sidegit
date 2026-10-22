@@ -11,24 +11,31 @@ const RECENT_MS = 30_000 // a file that changed less than this ago shows in the 
 const TOUCH_MS = 8_000 // how long a file Claude read or wrote stays marked after the call
 const MAX_TOUCHES = 20
 
-// The theme in ~/.config/sidegit/config.yaml
+// Keys of the Claude Code theme, so the pane follows the person's theme. In the Dracula
+// theme each one has the color the sidegit binary's Dracula config uses.
 const COLOR = {
-  title: '#BD93F9',
-  statusBar: '#6272A4',
-  repoName: '#FF79C6',
-  branchName: '#8BE9FD',
-  fileCount: '#6272A4',
-  dirName: '#6272A4',
-  staged: '#50FA7B',
-  added: '#50FA7B',
-  deleted: '#FF5555',
-  modified: '#FFB86C',
-  untracked: '#6272A4',
-  treeLines: '#6272A4',
-  read: '#8BE9FD',
-  write: '#F1FA8C',
+  title: 'claude',
+  statusBar: 'inactive',
+  repoName: 'permission',
+  branchName: 'suggestion',
+  fileCount: 'inactive',
+  dirName: 'inactive',
+  staged: 'success',
+  added: 'success',
+  deleted: 'error',
+  modified: 'warning',
+  untracked: 'inactive',
+  treeLines: 'inactive',
+  read: 'inactive',
+  write: 'claude',
 }
 const MARK = { read: '◉', write: '✎' }
+// The shimmer on a marked file name, in the theme colors Claude Code shimmers its own text
+// with: the mark color, and its shimmer color on the three letters of the band
+const PULSE = {
+  read: ['inactive', 'inactiveShimmer', 'inactiveShimmer'],
+  write: ['claude', 'claudeShimmer', 'claudeShimmer'],
+}
 
 const root = atom({ plugin: 'sidegit', key: 'root' } as const, '')
 const repos = atom({ plugin: 'sidegit', key: 'repos' } as const, [] as Repo[])
@@ -127,6 +134,8 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    // The terminal and the desktop app draw a Client; VS Code and the mobile app do not
+    const Client = e.surface === 'terminal' || e.surface === 'desktop' ? $.ui.resolve(e).Client : undefined
     // On the terminal's main screen the pane that session start opened sits above the prompt
     if (e.surface === 'terminal' && e.props.placement === 'inline') {
       void $.ui.close({ id: PANE }).catch(() => undefined)
@@ -177,19 +186,23 @@ export const register: Register = (on, options) => {
           const since = now - f.mtimeMs
           const recent = f.mtimeMs > 0 && since < RECENT_MS
           const name = row.id.slice(row.id.lastIndexOf('/') + 1)
+          const pulse =
+            Client && touch ? (
+              <Client key={`pulse:${row.id}`} module="./pulse.tsx" props={{ text: ` ${MARK[touch.kind]} ${name}`, colors: PULSE[touch.kind] }} />
+            ) : null
           return (
             <Box key={`row:${row.id}`} flexDirection="row">
               <Box flexShrink={1} overflow="hidden">
                 <Text wrap="truncate-end">
                   <Text color={COLOR.treeLines}>{row.guides}</Text>
                   <Text bold={f.staged} color={statusColor(f)}>{f.status}</Text>
-                  {' '}
-                  {touch ? (
-                    <Text bold color={COLOR[touch.kind]}>{`${MARK[touch.kind]} ${name}`}</Text>
+                  {pulse ? null : touch ? (
+                    <Text bold color={COLOR[touch.kind]}>{` ${MARK[touch.kind]} ${name}`}</Text>
                   ) : (
-                    <Text bold={recent} color={recent ? COLOR.title : undefined}>{name}</Text>
+                    <Text bold={recent} color={recent ? COLOR.title : undefined}>{` ${name}`}</Text>
                   )}
                 </Text>
+                {pulse}
               </Box>
               <Box flexGrow={1} />
               <Text>
