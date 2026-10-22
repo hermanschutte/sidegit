@@ -82,10 +82,13 @@ function statusColor(f: FileStatus): string | undefined {
   return undefined
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  // The "Pane width" setting in /config. A width the person drags wins.
+  const columns = typeof options?.width === 'number' ? Math.max(24, Math.round(options.width)) : 56
+
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'sidegit', description: 'Show the git changes of every repo in the project folder' })
-    void $.ui.open({ id: PANE, title: 'sidegit' })
+    void $.ui.open({ id: PANE, title: 'sidegit', columns })
     void refresh($)
     $.clock.every(POLL_MS, () => {
       void $.ui.panes().then(panes => (panes.some(p => p.id === PANE) ? refresh($) : undefined))
@@ -101,7 +104,7 @@ export const register: Register = on => {
     )
     if (terminal && !e.presentation.isFullscreen) return { text: 'sidegit shows on the side only in the fullscreen layout. Run /tui fullscreen, then /sidegit.' }
     if (terminal && e.presentation.columns < 110) return { text: 'sidegit shows on the side only in a terminal at least 110 columns wide. Widen the terminal, then run /sidegit.' }
-    const opened = await $.ui.open({ id: PANE, title: 'sidegit' })
+    const opened = await $.ui.open({ id: PANE, title: 'sidegit', columns })
     void refresh($)
     return { text: opened.isPlaced ? 'sidegit pane opened.' : `The sidegit pane is not shown: ${opened.reason}` }
   })

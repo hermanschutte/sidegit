@@ -34,7 +34,7 @@ const GIT: Record<string, Record<string, string>> = {
 // $.tool.call against, so the tests call it through this narrower type.
 type CallTool = (input: { tool: string } & Record<string, string>) => Promise<unknown>
 
-// The pane opens and closes the mod asked for, in order.
+// The pane opens (with the width each asked for) and closes the mod asked for, in order.
 const paneCalls: string[] = []
 
 function world(on: On) {
@@ -45,8 +45,8 @@ function world(on: On) {
   on('session.root', () => ({ value: '/work' }))
   on('session.surfaces', () => ({ value: ['terminal'] as const }))
   on('command.register', () => ({ value: { command: 'sidegit' } }))
-  on('ui.open', () => {
-    paneCalls.push('open')
+  on('ui.open', (_, e) => {
+    paneCalls.push(`open ${e.columns}`)
     return { value: { isPlaced: true } }
   })
   on('ui.close', () => {
@@ -140,11 +140,11 @@ test('on the main screen the pane from session start closes, and draws nothing',
   const clock = world(on)
   await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
   await clock.settle()
-  expect(paneCalls).toEqual(['open'])
+  expect(paneCalls).toEqual(['open 56'])
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, placement: 'inline' } })
   await clock.settle()
-  expect(paneCalls).toEqual(['open', 'close'])
+  expect(paneCalls).toEqual(['open 56', 'close'])
   expect(await ui.find({ key: 'repo:/work/api' })).toBeUndefined()
   await ui.unmount()
 })
@@ -162,5 +162,19 @@ test('/sidegit opens the pane only where the terminal docks it', async ($, on) =
   expect(paneCalls).toEqual([])
 
   expect((await run(true, 200)).text).toBe('sidegit pane opened.')
-  expect(paneCalls).toEqual(['open'])
+  expect(paneCalls).toEqual(['open 56'])
+})
+
+test('the pane opens at the width from the Pane width setting', { options: { width: 40 } }, async ($, on) => {
+  const clock = world(on)
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  expect(paneCalls).toEqual(['open 40'])
+})
+
+test('a Pane width under 24 opens at 24', { options: { width: 10 } }, async ($, on) => {
+  const clock = world(on)
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  expect(paneCalls).toEqual(['open 24'])
 })
