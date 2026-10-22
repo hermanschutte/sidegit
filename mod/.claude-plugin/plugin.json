@@ -1,0 +1,14 @@
+{
+  "name": "sidegit",
+  "version": "0.1.0",
+  "description": "The git changes of every repo in the project folder, in a pane beside the chat, with the file Claude reads or edits marked",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "width": {
+      "type": "number",
+      "title": "Pane width",
+      "description": "How many columns wide the sidegit pane opens, at least 24. Claude Code keeps it to at most 45% of the terminal, and a width you drag wins.",
+      "default": 56
+    }
+  }
+}
