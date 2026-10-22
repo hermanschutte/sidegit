@@ -29,6 +29,11 @@ const COLOR = {
   write: '#F1FA8C',
 }
 const MARK = { read: '◉', write: '✎' }
+// The pulse on a marked file name: from the mark color to the white center of the band
+const PULSE = {
+  read: ['#8BE9FD', '#ADF0FE', '#D0F7FE', '#FFFFFF'],
+  write: ['#F1FA8C', '#F5FBAF', '#FAFDD2', '#FFFFFF'],
+}
 
 const root = atom({ plugin: 'sidegit', key: 'root' } as const, '')
 const repos = atom({ plugin: 'sidegit', key: 'repos' } as const, [] as Repo[])
@@ -127,6 +132,8 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    // The terminal and the desktop app draw a Client; VS Code and the mobile app do not
+    const Client = e.surface === 'terminal' || e.surface === 'desktop' ? $.ui.resolve(e).Client : undefined
     // On the terminal's main screen the pane that session start opened sits above the prompt
     if (e.surface === 'terminal' && e.props.placement === 'inline') {
       void $.ui.close({ id: PANE }).catch(() => undefined)
@@ -177,19 +184,23 @@ export const register: Register = (on, options) => {
           const since = now - f.mtimeMs
           const recent = f.mtimeMs > 0 && since < RECENT_MS
           const name = row.id.slice(row.id.lastIndexOf('/') + 1)
+          const pulse =
+            Client && touch ? (
+              <Client key={`pulse:${row.id}`} module="./pulse.tsx" props={{ text: ` ${MARK[touch.kind]} ${name}`, colors: PULSE[touch.kind] }} />
+            ) : null
           return (
             <Box key={`row:${row.id}`} flexDirection="row">
               <Box flexShrink={1} overflow="hidden">
                 <Text wrap="truncate-end">
                   <Text color={COLOR.treeLines}>{row.guides}</Text>
                   <Text bold={f.staged} color={statusColor(f)}>{f.status}</Text>
-                  {' '}
-                  {touch ? (
-                    <Text bold color={COLOR[touch.kind]}>{`${MARK[touch.kind]} ${name}`}</Text>
+                  {pulse ? null : touch ? (
+                    <Text bold color={COLOR[touch.kind]}>{` ${MARK[touch.kind]} ${name}`}</Text>
                   ) : (
-                    <Text bold={recent} color={recent ? COLOR.title : undefined}>{name}</Text>
+                    <Text bold={recent} color={recent ? COLOR.title : undefined}>{` ${name}`}</Text>
                   )}
                 </Text>
+                {pulse}
               </Box>
               <Box flexGrow={1} />
               <Text>
