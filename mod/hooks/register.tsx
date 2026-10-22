@@ -2,9 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FileStatus, PRStatus, Repo, Touch } from '../types'
-import { findRepos, readRepo } from './git'
+import { scanRepos } from './git'
 import { fetchPR } from './github'
-import { COMMENT_ICON, FOLDER_ICON, fileIcon } from './icons'
+import { COMMENT_ICON, FOLDER_ICON, WORKTREE_ICON, fileIcon } from './icons'
 import { age, ancestorIds, buildRows, fitRepo } from './tree'
 
 const PANE = 'sidegit'
@@ -30,6 +30,7 @@ const COLOR = {
   untracked: 'inactive',
   treeLines: 'inactive',
   folderIcon: 'remember',
+  worktree: 'suggestion',
   read: 'inactive',
   write: 'claude',
 }
@@ -80,8 +81,7 @@ function refresh($: EngineInterface): Promise<void> {
     do {
       again = false
       const dir = await $.session.root()
-      const paths = await findRepos($, dir).catch(() => [])
-      const list = await Promise.all(paths.map(path => readRepo($, dir, path)))
+      const list = await scanRepos($, dir)
       await update($, root, () => dir)
       await update($, repos, () => list)
     } while (again)
@@ -198,25 +198,34 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         <Text color={COLOR.statusBar} wrap="truncate-end">
-          {` ${list.length} repo(s) | ${changes} change(s)`}
+          {` ${list.filter(r => !r.worktree).length} repo(s) | ${changes} change(s)`}
           {latest ? <Text color={COLOR[latest.kind]}>{` | ${MARK[latest.kind]} ${latest.path.startsWith(`${dir}/`) ? latest.path.slice(dir.length + 1) : latest.path}`}</Text> : null}
         </Text>
         {buildRows(list, new Set(closed)).map(row => {
           if (row.kind === 'repo') {
+            const tree = row.repo.worktree
             const pr = prParts(prMap[prKey(row.repo)], icons)
-            // The folder icon and its space take two columns from the name and branch
-            const fit = fitRepo(row.repo, icons ? width - 2 : width, pr.reduce((n, p) => n + [...p.text].length, 0))
-            return (
+            // The tree lines, and the icon and its space, take columns from the name and branch
+            const fit = fitRepo(row.repo, width - row.guides.length - (icons ? 2 : 0), pr.reduce((n, p) => n + [...p.text].length, 0))
+            const button = (
               <Button key={row.id} plain onPress={() => toggle(row.id)}>
                 {row.collapsed ? '▸ ' : '▾ '}
-                {icons ? <Text color={COLOR.folderIcon}>{`${FOLDER_ICON} `}</Text> : null}
-                <Text bold color={COLOR.repoName}>{fit.name}</Text>
+                {icons ? <Text color={tree ? COLOR.worktree : COLOR.folderIcon}>{`${tree ? WORKTREE_ICON : FOLDER_ICON} `}</Text> : null}
+                <Text bold={!tree} color={tree ? COLOR.worktree : COLOR.repoName}>{fit.name}</Text>
                 {fit.branch ? <Text color={COLOR.branchName}>{` ${fit.branch}`}</Text> : null}
                 {fit.count ? <Text color={COLOR.fileCount}>{` ${fit.count}`}</Text> : null}
                 {fit.branch && row.repo.ahead > 0 ? <Text color={COLOR.added}>{` ↑${row.repo.ahead}`}</Text> : null}
                 {fit.branch && row.repo.behind > 0 ? <Text color={COLOR.deleted}>{` ↓${row.repo.behind}`}</Text> : null}
                 {fit.branch ? pr.map(p => <Text color={p.color}>{p.text}</Text>) : null}
               </Button>
+            )
+            if (!row.guides) return button
+            // A worktree row sits under its main repo, after the tree lines
+            return (
+              <Box flexDirection="row">
+                <Text color={COLOR.treeLines}>{row.guides}</Text>
+                {button}
+              </Box>
             )
           }
           if (row.kind === 'dir') {

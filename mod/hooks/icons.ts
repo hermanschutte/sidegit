@@ -1,6 +1,7 @@
 // Nerd Font icons, as in the sidegit binary (tree.go), codepoints from nvim-web-devicons.
 
 export const FOLDER_ICON = '\uf07b'
+export const WORKTREE_ICON = '\ue725'
 // The icon before the count of unresolved review threads on a PR
 export const COMMENT_ICON = '\uf075'
 const DEFAULT_ICON = '\uf15b'

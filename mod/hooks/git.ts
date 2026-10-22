@@ -25,12 +25,45 @@ export function parseFind(stdout: string, root: string): string[] {
   return repos.sort((a, b) => (a === root ? -1 : b === root ? 1 : a < b ? -1 : a > b ? 1 : 0))
 }
 
+// scanRepos reads every repo in root and up to two levels below it, each followed by its
+// linked worktrees, as the sidegit binary does. A worktree whose folder is gone is left out.
+export async function scanRepos($: EngineInterface, root: string): Promise<Repo[]> {
+  const paths = await findRepos($, root).catch(() => [])
+  const groups = await Promise.all(
+    paths.map(async path => {
+      const [repo, linked] = await Promise.all([readRepo($, root, path), git($, path, ['worktree', 'list', '--porcelain'])])
+      const worktrees = (await Promise.all(parseWorktrees(linked).map(async wt => ((await $.fs.exists(wt)) ? wt : '')))).filter(Boolean)
+      if (worktrees.length === 0) return [repo]
+      // A worktree inside the repo shows as an untracked folder there; its own row shows it.
+      // git reports worktree paths with symlinks resolved, so the repo path is resolved too.
+      const real = (await $.fs.stat(path, { resolve: true }).catch(() => undefined))?.realPath ?? path
+      repo.files = repo.files.filter(f => {
+        const abs = `${real}/${f.path.replace(/\/$/, '')}`
+        return !worktrees.some(wt => abs === wt || abs.startsWith(`${wt}/`))
+      })
+      const rows = await Promise.all(worktrees.map(async wt => ({ ...(await readRepo($, root, wt)), name: wt.slice(wt.lastIndexOf('/') + 1), worktree: true })))
+      return [repo, ...rows]
+    }),
+  )
+  return groups.flat()
+}
+
+// parseWorktrees returns the paths of the linked worktrees in `git worktree list --porcelain`.
+// The first entry is the main worktree, the repo itself, and is left out.
+export function parseWorktrees(out: string): string[] {
+  return out
+    .split('\n')
+    .filter(line => line.startsWith('worktree '))
+    .map(line => line.slice('worktree '.length))
+    .slice(1)
+}
+
 export async function readRepo($: EngineInterface, root: string, path: string): Promise<Repo> {
   const [status, numstat] = await Promise.all([
     git($, path, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z']),
     git($, path, ['diff', 'HEAD', '--numstat', '--no-renames', '-z']),
   ])
-  const repo: Repo = { path, name: path === root ? path : path.slice(root.length + 1), ...parseStatus(status) }
+  const repo: Repo = { path, name: path === root ? path : path.slice(root.length + 1), ...parseStatus(status), worktree: false }
   const counts = parseNumstat(numstat)
   await Promise.all(
     repo.files.map(async f => {

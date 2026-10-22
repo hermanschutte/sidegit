@@ -1,7 +1,7 @@
 import type { FileStatus, Repo } from '../types'
 
 export type Row =
-  | { kind: 'repo'; id: string; repo: Repo; collapsed: boolean }
+  | { kind: 'repo'; id: string; repo: Repo; guides: string; collapsed: boolean }
   | { kind: 'dir'; id: string; name: string; guides: string; collapsed: boolean }
   | { kind: 'file'; id: string; file: FileStatus; guides: string }
 
@@ -11,24 +11,36 @@ type Dir = { name: string; path: string; dirs: Map<string, Dir>; files: FileStat
 const repoId = (repo: Repo) => `repo:${repo.path}`
 const dirId = (repo: Repo, dir: string) => `dir:${repo.path}/${dir}`
 
-// buildRows lays out the repos as sidegit does: in a repo its folders and then its root
-// files, in a folder its files and then its subfolders. A collapsed row hides its children.
+// buildRows lays out the repos as sidegit does: in a repo its folders, its root files and
+// then its linked worktrees, in a folder its files and then its subfolders. A collapsed
+// row hides its children.
 export function buildRows(repos: Repo[], collapsed: ReadonlySet<string>): Row[] {
   const rows: Row[] = []
-  for (const repo of repos) {
-    const id = repoId(repo)
-    rows.push({ kind: 'repo', id, repo, collapsed: collapsed.has(id) })
-    if (collapsed.has(id)) continue
-    const top = folderTree(repo.files)
-    addChildren(repo, [...sortedDirs(top), ...top.files], '', rows, collapsed)
-  }
+  repos.forEach((repo, i) => {
+    if (repo.worktree) return // drawn under its main repo
+    const worktrees: Repo[] = []
+    for (let j = i + 1; repos[j]?.worktree; j++) worktrees.push(repos[j] as Repo)
+    addRepo(repo, worktrees, '', '', rows, collapsed)
+  })
   return rows
 }
 
-function addChildren(repo: Repo, children: (Dir | FileStatus)[], prefix: string, rows: Row[], collapsed: ReadonlySet<string>): void {
+function addRepo(repo: Repo, worktrees: Repo[], guides: string, prefix: string, rows: Row[], collapsed: ReadonlySet<string>): void {
+  const id = repoId(repo)
+  rows.push({ kind: 'repo', id, repo, guides, collapsed: collapsed.has(id) })
+  if (collapsed.has(id)) return
+  const top = folderTree(repo.files)
+  addChildren(repo, [...sortedDirs(top), ...top.files, ...worktrees], prefix, rows, collapsed)
+}
+
+function addChildren(repo: Repo, children: (Dir | FileStatus | Repo)[], prefix: string, rows: Row[], collapsed: ReadonlySet<string>): void {
   children.forEach((child, i) => {
     const last = i === children.length - 1
     const guides = prefix + (last ? '└ ' : '├ ')
+    if ('worktree' in child) {
+      addRepo(child, [], guides, prefix + (last ? '  ' : '│ '), rows, collapsed)
+      return
+    }
     if (!('dirs' in child)) {
       rows.push({ kind: 'file', id: `${repo.path}/${child.path.replace(/\/$/, '')}`, file: child, guides })
       return
@@ -62,12 +74,17 @@ function sortedDirs(dir: Dir): Dir[] {
   return [...dir.dirs.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
-// ancestorIds returns the ids of the repo and folder rows that hold the file at path.
+// ancestorIds returns the ids of the repo and folder rows that hold the file at path. A file
+// of a worktree inside its main repo's folder belongs to the worktree, the deepest repo,
+// and a worktree row sits under its main repo.
 export function ancestorIds(repos: Repo[], path: string): string[] {
-  const repo = repos.find(r => path.startsWith(`${r.path}/`))
+  const holders = repos.filter(r => path.startsWith(`${r.path}/`))
+  const repo = holders.sort((a, b) => b.path.length - a.path.length)[0]
   if (!repo) return []
   const parts = path.slice(repo.path.length + 1).split('/').slice(0, -1)
-  return [repoId(repo), ...parts.map((_, i) => dirId(repo, parts.slice(0, i + 1).join('/')))]
+  const ids = [repoId(repo), ...parts.map((_, i) => dirId(repo, parts.slice(0, i + 1).join('/')))]
+  const main = repo.worktree ? repos.slice(0, repos.indexOf(repo)).findLast(r => !r.worktree) : undefined
+  return main ? [repoId(main), ...ids] : ids
 }
 
 // fitRepo shortens the name and branch of a repo row to fit width, as sidegit does.

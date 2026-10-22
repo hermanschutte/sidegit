@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { parseStatus } from '../hooks/git'
+import { parseWorktrees } from '../hooks/git'
 import { parsePR } from '../hooks/github'
 import { fileIcon } from '../hooks/icons'
 
@@ -29,6 +30,22 @@ const GIT: Record<string, Record<string, string>> = {
   '/work/web': {
     status: '# branch.head feature/x\x00# branch.ab +0 -0\x001 A. N... 000000 100644 100644 h0 h2 app/page.tsx\x00',
     diff: '12\t0\tapp/page.tsx\x00',
+  },
+}
+
+// api with a linked worktree inside its folder, which api lists as an untracked folder,
+// and a worktree whose folder is gone
+const WT = '/work/api/.claude/worktrees/wt1'
+const GIT_WORKTREES: Record<string, Record<string, string>> = {
+  ...GIT,
+  '/work/api': {
+    status: (GIT['/work/api']?.status ?? '') + '? .claude/worktrees/wt1/\x00',
+    diff: GIT['/work/api']?.diff ?? '',
+    worktree: `worktree /work/api\nHEAD abc\nbranch refs/heads/main\n\nworktree ${WT}\nHEAD def\nbranch refs/heads/feature/wt\n\nworktree /work/gone\nHEAD 123\ndetached\nprunable gitdir file points to non-existent location\n`,
+  },
+  [WT]: {
+    status: '# branch.head feature/wt\x00# branch.ab +0 -0\x001 .M N... 100644 100644 100644 h1 h2 a.ts\x00',
+    diff: '4\t0\ta.ts\x00',
   },
 }
 
@@ -62,7 +79,7 @@ type CallTool = (input: { tool: string } & Record<string, string>) => Promise<un
 const paneCalls: string[] = []
 
 // world answers the engine's calls for two repos in /work. prOutput is gh's answer per repo folder.
-function world(on: On, prOutput: Record<string, string> = {}) {
+function world(on: On, prOutput: Record<string, string> = {}, gitOutput = GIT) {
   const clock = mock.clock(on, { now: 100_000 })
   const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
   paneCalls.length = 0
@@ -84,10 +101,11 @@ function world(on: On, prOutput: Record<string, string> = {}) {
     const [cmd, , , repo, sub] = e.argv
     if (cmd === 'find') return ok(FIND)
     if (cmd === 'gh') return ok(prOutput[e.init?.cwd ?? ''] ?? NO_PR)
-    return ok(GIT[repo ?? '']?.[sub ?? ''] ?? '')
+    return ok(gitOutput[repo ?? '']?.[sub ?? ''] ?? '')
   })
   on('fs.stat', () => ({ value: { kind: 'file', size: 4, mtimeMs: 40_000, isLink: false } }))
   on('fs.read', () => ({ value: 'a\nb\n' }))
+  on('fs.exists', (_, e) => ({ value: !e.path.endsWith('/gone') }))
   return clock
 }
 
@@ -263,4 +281,32 @@ test('the GitHub answer gives the PR number, state, checks and unresolved thread
   expect(parsePR(pr('MERGED', false, 'SUCCESS'))?.state).toBe('MERGED')
   expect(parsePR(NO_PR)).toBeNull()
   expect(parsePR('gh: not logged in')).toBeNull()
+})
+
+test('a linked worktree shows under its main repo, and a gone worktree does not', async ($, on) => {
+  const clock = world(on, {}, GIT_WORKTREES)
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  // The worktree's own row shows its folder, so api counts it no more
+  expect((await ui.find({ key: 'repo:/work/api' }))?.text).toBe('\u25be \uf07b api [main] (2) \u21911')
+  expect((await ui.find({ key: `repo:${WT}` }))?.text).toBe('\u25be \ue725 wt1 [feature/wt] (1)')
+  expect((await ui.find({ key: 'row:/work/api/notes.md' }))?.text).toMatch(/^\u251c \? /)
+  expect((await ui.find({ key: `row:${WT}/a.ts` }))?.text).toMatch(/^  \u2514 M \ue628 a\.ts\s*\+4\s+1m$/)
+  expect(await ui.find({ key: 'repo:/work/gone' })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /repo\(s\)/ }))?.text).toBe(' 2 repo(s) | 4 change(s)')
+
+  // Collapsing the main repo hides its worktree; an edit in the worktree opens both again
+  await ui.press({ key: 'repo:/work/api' })
+  expect(await ui.find({ key: `repo:${WT}` })).toBeUndefined()
+  await ($.tool.call as unknown as CallTool)({ tool: 'Edit', file_path: `${WT}/a.ts`, old_string: 'a', new_string: 'b' })
+  await clock.settle()
+  expect((await ui.find({ key: `repo:${WT}` }))?.text).toMatch(/^\u25be \ue725 wt1/)
+  await ui.unmount()
+})
+
+test('git worktree list gives the linked worktrees, not the repo itself', () => {
+  expect(parseWorktrees(GIT_WORKTREES['/work/api']?.worktree ?? '')).toEqual([WT, '/work/gone'])
+  expect(parseWorktrees('worktree /work/api\nHEAD abc\nbranch refs/heads/main\n')).toEqual([])
 })

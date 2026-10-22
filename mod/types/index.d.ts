@@ -16,12 +16,14 @@ export type FileStatus = {
 export type Repo = {
   /** absolute */
   path: string
-  /** relative to the scan root; the absolute path for the root repo */
+  /** relative to the scan root; the absolute path for the root repo; the folder name for a worktree */
   name: string
   branch: string
   ahead: number
   behind: number
   files: FileStatus[]
+  /** true for a linked worktree, which follows its main repo in the list */
+  worktree: boolean
 }
 
 /** A file Claude read or wrote. */
